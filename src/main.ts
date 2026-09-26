@@ -1,9 +1,10 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { initializeTransactionalContext } from 'typeorm-transactional';
 import { AppModule } from './app.module';
+import { setupApp } from './app.setup';
 
 async function bootstrap() {
   // AppModule 생성 전에 호출해야 @Transactional()이 동작한다
@@ -13,14 +14,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
   const config = app.get(ConfigService);
 
-  app.setGlobalPrefix('api/v1');
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  setupApp(app);
   app.enableShutdownHooks();
 
   if (config.get<string>('NODE_ENV') !== 'production') {

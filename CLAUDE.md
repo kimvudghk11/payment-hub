@@ -302,13 +302,16 @@ cancel(cancelAmount: number, reasonCode: string): PaymentCancel {
 - 에러 코드 정의: `common/errors/error-code.ts` ← **에러 코드의 단일 진실 공급원**
 - 예외 클래스: `common/errors/business.exception.ts` → `new BusinessException(ErrorCode.X, detail?)`
 - 전역 필터: `common/filters/http-exception.filter.ts` → 모든 예외를 아래 형식으로 변환
+- 전역 설정(prefix·ValidationPipe·필터)은 `src/app.setup.ts`의 `setupApp()` 하나로 모은다. `main.ts`와 테스트가 같은 함수를 써서 설정이 어긋나지 않게 한다.
 
 ```ts
-// common/errors/error-code.ts
-export const ErrorCode = {
+// common/errors/error-code.ts — 정의는 status·message만 쓰고, code(=키)는 자동으로 붙는다
+const ERROR_DEFINITIONS = {
   ORDER_NOT_FOUND: { status: 404, message: '주문을 찾을 수 없습니다.' },
   // ...
 } as const satisfies Record<string, { status: number; message: string }>;
+
+ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '...' }
 ```
 
 에러 응답 형식 (`IResponseBase`와 같은 뼈대):
@@ -324,7 +327,8 @@ export const ErrorCode = {
 
 필터의 변환 규칙:
 - `BusinessException` → 정의된 status, code, message 그대로
-- class-validator 실패 → `400 INVALID_REQUEST`, 필드별 한국어 메시지를 `detail.errors`에 배열로
+- class-validator 실패 → `400 INVALID_REQUEST`, 필드별 한국어 메시지를 `detail.errors`에 `{ field, message }` 배열로. 중첩 필드는 점 경로(`items.0.quantity`), 정의되지 않은 필드는 `'허용되지 않은 필드입니다.'`
+- Nest 내장 예외 → 400은 `INVALID_REQUEST`(JSON 파싱 실패 등), 401은 `UNAUTHORIZED`, 404는 `RESOURCE_NOT_FOUND`(없는 경로). 그 외 status는 `500 INTERNAL_ERROR`로 처리한다. hub 코드에서는 내장 예외를 직접 던지지 않는다
 - 토스 에러 → 아는 코드는 hub 코드로 매핑, 모르는 코드는 `PG_ERROR`. 토스 원본 `code`·`message`는 `detail.pgCode`·`detail.pgMessage`로 전달하고 DB `failure_code`/`failure_message`에도 보존 (카드 거절 사유 등을 서비스가 사용자에게 보여줄 수 있게)
 - 그 외 예상 못 한 예외 → `500 INTERNAL_ERROR`, 메시지는 `'일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'`. 스택·SQL·내부 정보는 응답에 넣지 않고 로그로만 남긴다
 - `detail`에 비밀값·개인정보 금지

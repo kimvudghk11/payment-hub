@@ -6,6 +6,26 @@
 
 ### 2026-09-26
 
+#### feat(common): 에러 코드·BusinessException·전역 예외 필터 추가
+- **무엇을**:
+  - `src/common/errors/error-code.ts`: CLAUDE.md 기본 에러 코드 25개. 정의는 `{ status, message }`만 쓰고 `code`(=키)는 자동 부여
+  - `BusinessException(ErrorCode.X, detail?)`
+  - `HttpExceptionFilter`(`@Catch()` 전체): `{ success: false, code, message, detail? }`로 변환. Nest 내장 400/401/404는 hub 코드로 매핑, 그 외·예상 못 한 예외는 `500 INTERNAL_ERROR` + 스택은 로그로만
+  - `validationExceptionFactory`: 검증 실패 → `400 INVALID_REQUEST`, `detail.errors = [{ field, message }]`. 중첩 필드 점 경로, 정의되지 않은 필드는 한국어 메시지로 대체
+  - `src/app.setup.ts` `setupApp()`: prefix·ValidationPipe·필터를 한 곳에 모아 `main.ts`와 테스트가 공유
+- **왜**:
+  - 서비스는 에러 `code`로 분기하므로 코드명과 응답의 `code`가 어긋나면 안 됨 → 키에서 `code`를 파생해 오타·불일치 원천 차단
+  - `BusinessException`이 코드 정의 객체를 그대로 받으면 역조회 없이 필터가 status·code·message를 꺼낼 수 있음
+  - SQL 에러 메시지·스택이 응답으로 새면 스키마·내부 구조가 노출됨
+  - 테스트가 main.ts와 다른 설정으로 앱을 띄우면 테스트가 실제 동작을 보장하지 못함
+- **변경 파일**: `src/common/errors/*`, `src/common/filters/http-exception.filter.ts`, `src/app.setup.ts`, `src/main.ts`, `test/common/error-code.spec.ts`, `test/common/error-response.spec.ts`, `CLAUDE.md`
+- **스키마/에러 코드**: 에러 코드 25개 구현 (CLAUDE.md 표와 동일, 추가·변경 없음)
+- **문서**: CLAUDE.md 8장 에러 처리 — ErrorCode 정의 방식, `setupApp()`, 검증 에러 형식, Nest 내장 예외 매핑 규칙 추가
+- **남은 작업 / 주의**:
+  - 토스 에러 → hub 코드 매핑(`detail.pgCode`/`pgMessage`)은 PG 클라이언트 구현 시
+  - 검증 메시지 공통 util(`validation-message.util.ts`)은 첫 요청 DTO 작성 시. 그 전까지 DTO에 메시지를 빠뜨리면 class-validator 영문 기본 메시지가 나감
+  - 성공 응답 래퍼(`IResponseBase`, `@ResponseMessage` 인터셉터)는 별도 커밋
+
 #### feat(entity): 전체 테이블 엔티티 매핑 및 상태 constants 추가
 - **무엇을**:
   - `db/schema.sql` 17개 테이블 전부 TypeORM 엔티티로 매핑 (`src/<domain>/domain/*.entity.ts`). 컬럼 매핑만 하고, 정적 팩토리·행위 메서드는 각 유스케이스 구현 시 TDD로 추가
