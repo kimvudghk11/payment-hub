@@ -145,7 +145,8 @@ export class Payment extends BaseEntity {
 
   /**
    * 토스 승인·조회 응답 반영. 토스 method 원문은 method에 두고, 조회·리포트용 분류(methodType 등)를 정규화해 채운다.
-   * 토스 상태가 DONE·WAITING_FOR_DEPOSIT이 아니면 결과를 확정하지 않고 UNKNOWN으로 두어 대사가 판단한다.
+   * 토스 DONE·WAITING_FOR_DEPOSIT은 그대로, ABORTED(승인 실패)는 FAILED + 토스 사유, EXPIRED(승인 없이 만료)는 EXPIRED.
+   * 그 외(READY·IN_PROGRESS 등 아직 승인 전)는 확정하지 않고 UNKNOWN으로 두어 대사가 다시 확인한다.
    */
   applyTossPayment(response: TossPayment): void {
     this.assertUnresolved('토스 응답 반영');
@@ -163,6 +164,10 @@ export class Payment extends BaseEntity {
     this.approvedAt = response.approvedAt ? new Date(response.approvedAt) : null;
     this.providerResponse = response as unknown as Record<string, unknown>;
     this.status = RESOLVED_TOSS_STATUSES[response.status] ?? PaymentStatus.UNKNOWN;
+    if (this.status === PaymentStatus.FAILED) {
+      this.failureCode = response.failure?.code ?? response.status;
+      this.failureMessage = response.failure?.message ?? null;
+    }
   }
 
   /** 토스가 승인을 거절한 확정 실패. 원본 코드·메시지는 서비스가 사용자에게 사유를 보여줄 수 있게 보존한다 */
@@ -200,6 +205,8 @@ const confirmIdempotencyKey = (paymentKey: string): string =>
 const RESOLVED_TOSS_STATUSES: Record<string, PaymentStatus> = {
   DONE: PaymentStatus.DONE,
   WAITING_FOR_DEPOSIT: PaymentStatus.WAITING_FOR_DEPOSIT,
+  ABORTED: PaymentStatus.FAILED,
+  EXPIRED: PaymentStatus.EXPIRED,
 };
 
 const CANCELABLE_STATUSES: ReadonlySet<PaymentStatus> = new Set([PaymentStatus.DONE, PaymentStatus.PARTIAL_CANCELED]);

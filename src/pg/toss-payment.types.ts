@@ -27,4 +27,6 @@ export interface TossPayment {
   transfer?: { bankCode: string } | null;
   easyPay?: { provider: string } | null;
   receipt?: { url: string } | null;
+  /** ABORTED 등 실패한 결제의 사유 */
+  failure?: { code: string; message: string } | null;
 }

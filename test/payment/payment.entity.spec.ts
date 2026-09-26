@@ -157,6 +157,37 @@ describe('Payment.applyTossPayment — 결제 수단 분류', () => {
     expect(payment.status).toBe(PaymentStatus.UNKNOWN);
   });
 
+  it('토스 ABORTED(승인 실패) → FAILED + 토스 실패 사유', () => {
+    const payment = started();
+    payment.applyTossPayment(
+      tossPayment({
+        status: 'ABORTED',
+        approvedAt: null,
+        failure: { code: 'REJECT_CARD_COMPANY', message: '카드사 거절' },
+      }),
+    );
+
+    expect(payment).toMatchObject({
+      status: PaymentStatus.FAILED,
+      failureCode: 'REJECT_CARD_COMPANY',
+      failureMessage: '카드사 거절',
+      approvedAt: null,
+    });
+  });
+
+  it('토스 EXPIRED(승인 없이 인증 만료) → EXPIRED — 돈이 나가지 않았으므로 주문은 다시 결제할 수 있다', () => {
+    const payment = started();
+    payment.applyTossPayment(tossPayment({ status: 'EXPIRED', approvedAt: null, card: null }));
+
+    expect(payment.status).toBe(PaymentStatus.EXPIRED);
+  });
+
+  it('토스 READY·IN_PROGRESS(아직 승인 전)는 확정하지 않는다', () => {
+    const payment = started();
+    payment.applyTossPayment(tossPayment({ status: 'READY' }));
+    expect(payment.status).toBe(PaymentStatus.UNKNOWN);
+  });
+
   it('IN_PROGRESS·UNKNOWN이 아닌 결제에는 반영할 수 없다', () => {
     const payment = started();
     payment.applyTossPayment(tossPayment());
