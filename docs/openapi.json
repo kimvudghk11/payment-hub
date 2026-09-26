@@ -306,6 +306,118 @@
         ]
       }
     },
+    "/api/v1/billing-keys": {
+      "post": {
+        "description": "토스 카드 등록창 인증 후 authKey로 빌링키를 발급받아 암호화 저장. 빌링키 원문은 어떤 응답에도 나가지 않는다. 402 BILLING_KEY_REJECTED = 토스 거절",
+        "operationId": "BillingKeyController_issue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueBillingKeyRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingKeyResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "빌링키 등록",
+        "tags": [
+          "서비스 API — 결제 수단(빌링키)"
+        ]
+      },
+      "get": {
+        "description": "활성 수단만, 최근 등록 순. externalUserId 필수",
+        "operationId": "BillingKeyController_list",
+        "parameters": [
+          {
+            "name": "externalUserId",
+            "required": true,
+            "in": "query",
+            "description": "서비스 쪽 사용자 ID (필수)",
+            "schema": {
+              "example": "user-123",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingKeyListResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "사용자 결제 수단 목록",
+        "tags": [
+          "서비스 API — 결제 수단(빌링키)"
+        ]
+      }
+    },
+    "/api/v1/billing-keys/{billingKeyId}": {
+      "delete": {
+        "description": "REVOKED — 이후 자동결제에 쓸 수 없다. 이미 해제됐으면 그대로 200. 다른 서비스의 수단은 404",
+        "operationId": "BillingKeyController_revoke",
+        "parameters": [
+          {
+            "name": "billingKeyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingKeyResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "결제 수단 해제",
+        "tags": [
+          "서비스 API — 결제 수단(빌링키)"
+        ]
+      }
+    },
     "/api/v1/payments/confirm": {
       "post": {
         "description": "토스 결제창 인증 후 successUrl로 받은 paymentKey·orderId·amount로 승인한다. 같은 paymentKey 재요청은 기록된 결과를 준다. 402 PAYMENT_REJECTED = 토스 거절(detail.pgCode·pgMessage), 504 PG_TIMEOUT·502 PG_ERROR = 결과 불명(UNKNOWN) — 재시도하지 말고 조회·웹훅으로 확인",
@@ -2626,6 +2738,111 @@
           "nextCursor": {
             "type": "string",
             "description": "다음 조회의 after 값. 더 없으면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "IssueBillingKeyRequestDto": {
+        "type": "object",
+        "properties": {
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "customerKey": {
+            "type": "string",
+            "description": "토스 customerKey. 서비스가 사용자별로 만든 추측 불가능한 값 (카드 등록창에 넘긴 값과 같아야 함)",
+            "example": "c_8f2a91d0e4"
+          },
+          "authKey": {
+            "type": "string",
+            "description": "토스 카드 등록창 successUrl로 받은 authKey",
+            "example": "bln_..."
+          }
+        },
+        "required": [
+          "externalUserId",
+          "customerKey",
+          "authKey"
+        ]
+      },
+      "BillingKeyResponseDto": {
+        "type": "object",
+        "properties": {
+          "billingKeyId": {
+            "type": "string",
+            "description": "결제 수단 ID (자동결제 요청에 사용)"
+          },
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "cardCompany": {
+            "type": "string",
+            "description": "카드사",
+            "nullable": true,
+            "example": "현대"
+          },
+          "cardNumberMasked": {
+            "type": "string",
+            "description": "마스킹된 카드번호",
+            "nullable": true,
+            "example": "433012******1234"
+          },
+          "status": {
+            "type": "string",
+            "description": "상태",
+            "enum": [
+              "ACTIVE",
+              "REVOKED"
+            ],
+            "example": "ACTIVE"
+          },
+          "revokedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "해제 시각",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "등록 시각"
+          }
+        },
+        "required": [
+          "billingKeyId",
+          "externalUserId",
+          "cardCompany",
+          "cardNumberMasked",
+          "status",
+          "revokedAt",
+          "createdAt"
+        ]
+      },
+      "BillingKeyListResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillingKeyResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "description": "개수"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "항상 null (사용자별 수단은 한 번에 준다)",
             "nullable": true
           }
         },

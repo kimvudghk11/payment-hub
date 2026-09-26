@@ -177,6 +177,17 @@ export interface PaymentDetail extends Payment {
   cancels: PaymentCancel[];
 }
 
+/** 결제 수단 (빌링키 원문·customerKey는 없음) */
+export interface BillingKey {
+  billingKeyId: string;
+  externalUserId: string;
+  cardCompany: string | null;
+  cardNumberMasked: string | null;
+  status: 'ACTIVE' | 'REVOKED';
+  revokedAt: string | null;
+  createdAt: string;
+}
+
 /** 웹훅 본문·이벤트 재조회 항목 */
 export interface HubEvent {
   eventId: string;
@@ -264,6 +275,25 @@ export class PaymentHubServiceClient {
     return (await this.call<Refundable>('GET', `/payments/${paymentId}/refundable`)).data;
   }
 
+  /**
+   * 결제 수단(빌링키) 등록. 토스 카드 등록창 successUrl로 받은 authKey와, 창에 넘긴 customerKey를 보낸다.
+   * 빌링키 원문은 hub만 가진다 — 서비스는 billingKeyId로만 자동결제를 요청한다.
+   * PG_TIMEOUT이면 등록 여부를 알 수 없으므로 사용자가 카드 등록을 다시 한다 (authKey는 1회용).
+   */
+  async issueBillingKey(input: { externalUserId: string; customerKey: string; authKey: string }): Promise<BillingKey> {
+    return (await this.call<BillingKey>('POST', '/billing-keys', input, undefined, PG_CALL_TIMEOUT_MS)).data;
+  }
+
+  /** 사용자의 활성 결제 수단 */
+  async listBillingKeys(externalUserId: string): Promise<Page<BillingKey>> {
+    return (await this.call<Page<BillingKey>>('GET', '/billing-keys', undefined, { externalUserId })).data;
+  }
+
+  /** 결제 수단 해제 (멱등) */
+  async revokeBillingKey(billingKeyId: string): Promise<BillingKey> {
+    return (await this.call<BillingKey>('DELETE', `/billing-keys/${billingKeyId}`)).data;
+  }
+
   /** 이벤트 재조회: after 이후 이벤트를 발행 순서대로 (웹훅 본문과 같은 형태) */
   async listEvents(query: { after?: string; limit?: number } = {}): Promise<Page<HubEvent>> {
     return (await this.call<Page<HubEvent>>('GET', '/events', undefined, query)).data;
@@ -312,7 +342,7 @@ export class PaymentHubServiceClient {
   }
 
   private call<T>(
-    method: 'GET' | 'POST',
+    method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: unknown,
     query?: Record<string, string | number | undefined>,

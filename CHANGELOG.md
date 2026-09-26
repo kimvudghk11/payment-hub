@@ -6,6 +6,17 @@
 
 ### 2026-09-27
 
+#### feat(billing-key): 결제 수단(빌링키) 등록·목록·해제 API 추가
+- **무엇을**: `POST /billing-keys`(토스 발급 → 암호화 저장, 201), `GET /billing-keys?externalUserId=`(활성 수단, 최근 순), `DELETE /billing-keys/:id`(REVOKED, 멱등, 다른 서비스 수단은 404). 에러 코드 `BILLING_KEY_REJECTED`(402). 예제 `issueBillingKey`·`listBillingKeys`·`revokeBillingKey`, api.md 3.5, OpenAPI
+- **왜**:
+  - 정기결제 서비스가 카드를 등록해 둘 수단. 빌링키 원문은 응답·DB 평문·로그 어디에도 남기지 않음 (테스트로 응답 본문·DB 암호문에 원문이 없음을 확인)
+  - 카드 등록 거절을 결제 승인 거절(`PAYMENT_REJECTED`)과 다른 코드로 — 서비스 화면 문구가 다름
+  - 발급 결과 불명이면 저장하지 않음: authKey가 1회용이라 재시도로 복구할 수 없고, 저장되지 않은 빌링키는 hub가 쓸 수 없으므로 돈이 나갈 위험도 없음
+- **변경 파일**: `src/billing-key/*`, `src/app.module.ts`, `src/common/errors/error-code.ts`, `examples/service-client.ts`, `test/billing-key/*`, `test/common/error-code.spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`, `CLAUDE.md`
+- **스키마/에러 코드**: `BILLING_KEY_REJECTED` 추가
+- **문서**: CLAUDE.md 8장 에러 코드 표
+- **남은 작업 / 주의**: 토스 쪽 빌링키 삭제는 하지 않음 (공개 API 미확인)
+
 #### feat(billing-key): 빌링키·자동결제 도메인 추가
 - **무엇을**: `BillingKey.issue`(빌링키 원문은 암호화에만 사용)·`revoke`(멱등)·`usableBy(externalUserId)`(활성 + 같은 사용자). `Payment.startBilling`(BILLING, 빌링키 연결, 멱등키 `billing:<서비스 키>`, paymentKey는 응답 후)·`matchesBilling`(주문·빌링키·금액). `applyTossPayment`가 비어 있는 paymentKey를 토스 응답으로 채움. 승인·자동결제의 공통 초기화를 `Payment.start`로 추출
 - **왜**:

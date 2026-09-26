@@ -10,6 +10,7 @@ import { AdminServiceModule } from './admin/service/admin-service.module';
 import { databaseConfig } from './common/config/database.config';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './common/guards/auth.module';
+import { BillingKeyModule } from './billing-key/billing-key.module';
 import { OrderModule } from './order/order.module';
 import { PaymentModule } from './payment/payment.module';
 import { PgWebhookModule } from './pg-webhook/pg-webhook.module';
@@ -32,6 +33,7 @@ import { ServiceModule } from './service/service.module';
     AuthModule,
     ServiceModule,
     OrderModule,
+    BillingKeyModule,
     PaymentModule,
     PgWebhookModule,
     AdminServiceModule,

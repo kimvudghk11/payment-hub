@@ -39,6 +39,8 @@ const ERROR_DEFINITIONS = {
   CANCEL_REJECTED: { status: 409, message: '결제 대행사가 환불을 처리하지 않았습니다.' },
   /** 토스가 승인을 거절 (카드 한도 초과 등). detail.pgCode·pgMessage로 사유 전달 */
   PAYMENT_REJECTED: { status: 402, message: '결제 대행사가 결제를 승인하지 않았습니다.' },
+  /** 토스가 카드 등록(빌링키 발급)을 거절. detail.pgCode·pgMessage로 사유 전달 */
+  BILLING_KEY_REJECTED: { status: 402, message: '결제 대행사가 카드 등록을 승인하지 않았습니다.' },
   BILLING_KEY_NOT_FOUND: { status: 404, message: '등록된 자동결제 수단을 찾을 수 없습니다.' },
 
   // PG

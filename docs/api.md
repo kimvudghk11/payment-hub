@@ -683,9 +683,9 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| `POST` | `/billing-keys` | 빌링키 발급 (토스 카드 등록창 인증 후) | 🚧 |
-| `GET` | `/billing-keys` | 사용자 등록 수단 목록 (`externalUserId` 필수) | 🚧 |
-| `DELETE` | `/billing-keys/:billingKeyId` | 등록 해제 (토스 빌링키 삭제 + `REVOKED`) | 🚧 |
+| `POST` | `/billing-keys` | 빌링키 발급 (토스 카드 등록창 인증 후) — `201` | ✅ |
+| `GET` | `/billing-keys` | 사용자 활성 수단 목록 (`externalUserId` 필수, 최근 등록 순) | ✅ |
+| `DELETE` | `/billing-keys/:billingKeyId` | 등록 해제 (hub에서 `REVOKED` — 이후 자동결제 불가. 멱등) | ✅ |
 
 ```json
 // POST 요청 — customerKey는 서비스가 사용자별로 만든 추측 불가능한 값
@@ -703,6 +703,11 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 ```
 
 빌링키 원문은 **어떤 응답에도 나가지 않는다.** 서비스는 `billingKeyId`로만 자동결제를 요청한다.
+
+- `customerKey`: 영문·숫자·`-_=.@` 2~300자 (토스 규칙). 카드 등록창에 넘긴 값과 같아야 한다
+- 토스 거절(카드 오류 등) → `402 BILLING_KEY_REJECTED` + `detail.pgCode`·`pgMessage`
+- 응답 지연 → `504 PG_TIMEOUT` — 등록 여부를 알 수 없고 authKey는 1회용이므로 **사용자가 카드 등록을 다시 한다** (저장된 것이 없음)
+- 해제는 hub 안에서만 이뤄진다 (토스 빌링키 삭제 API는 호출하지 않음). hub에 빌링키가 남지 않으므로 이 키로는 더 이상 결제되지 않는다
 
 ### 3.6 이벤트 재조회
 

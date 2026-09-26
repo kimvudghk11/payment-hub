@@ -211,6 +211,29 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(await client.catchUpEvents(last, () => Promise.reject(new Error('새 이벤트 없음')))).toBe(last);
   });
 
+  it('결제 수단: 카드 등록 → 사용자 목록 → 해제', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    toss.respond((request) => ({
+      status: 200,
+      body: {
+        customerKey: request.body.customerKey,
+        billingKey: 'bk_secret',
+        cardCompany: '신한',
+        cardNumber: '9410****',
+      },
+    }));
+
+    const key = await client.issueBillingKey({ externalUserId: 'user-1', customerKey: 'c_user1_x', authKey: 'bln_1' });
+    const listed = await client.listBillingKeys('user-1');
+    const revoked = await client.revokeBillingKey(key.billingKeyId);
+
+    expect(key).toMatchObject({ cardCompany: '신한', status: 'ACTIVE' });
+    expect(listed.data.map((k) => k.billingKeyId)).toEqual([key.billingKeyId]);
+    expect(revoked.status).toBe('REVOKED');
+    expect(await client.listBillingKeys('user-1')).toMatchObject({ data: [] });
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });
