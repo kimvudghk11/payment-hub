@@ -188,6 +188,58 @@ describe('Payment.applyTossPayment — 결제 수단 분류', () => {
     expect(payment.status).toBe(PaymentStatus.UNKNOWN);
   });
 
+  describe('가상계좌 입금 대기(WAITING_FOR_DEPOSIT)에서', () => {
+    const waiting = () => {
+      const payment = started();
+      payment.applyTossPayment(
+        tossPayment({
+          status: 'WAITING_FOR_DEPOSIT',
+          method: '가상계좌',
+          card: null,
+          approvedAt: null,
+          virtualAccount: { accountNumber: 'X1', bankCode: '20', dueDate: '2026-09-28T23:59:59+09:00' },
+        }),
+      );
+      return payment;
+    };
+
+    it('입금 완료(토스 DONE) → DONE, 승인 시각 = 입금 시각', () => {
+      const payment = waiting();
+      payment.applyTossPayment(
+        tossPayment({
+          status: 'DONE',
+          method: '가상계좌',
+          card: null,
+          approvedAt: '2026-09-28T10:00:00+09:00',
+          virtualAccount: { accountNumber: 'X1', bankCode: '20', dueDate: '2026-09-28T23:59:59+09:00' },
+        }),
+      );
+      expect(payment).toMatchObject({ status: PaymentStatus.DONE, approvedAt: new Date('2026-09-28T01:00:00.000Z') });
+    });
+
+    it.each(['EXPIRED', 'CANCELED'])('입금 전 가상계좌 %s → EXPIRED (돈이 들어오지 않음)', (tossStatus) => {
+      const payment = waiting();
+      payment.applyTossPayment(tossPayment({ status: tossStatus, card: null, approvedAt: null }));
+      expect(payment.status).toBe(PaymentStatus.EXPIRED);
+    });
+
+    it('토스도 아직 입금 대기면 그대로', () => {
+      const payment = waiting();
+      payment.applyTossPayment(tossPayment({ status: 'WAITING_FOR_DEPOSIT', card: null, approvedAt: null }));
+      expect(payment.status).toBe(PaymentStatus.WAITING_FOR_DEPOSIT);
+    });
+
+    it('알 수 없는 토스 상태여도 UNKNOWN으로 떨어뜨리지 않고 입금 대기 유지', () => {
+      const payment = waiting();
+      payment.applyTossPayment(tossPayment({ status: 'IN_PROGRESS', card: null, approvedAt: null }));
+      expect(payment.status).toBe(PaymentStatus.WAITING_FOR_DEPOSIT);
+    });
+
+    it('실패·불명 처리는 입금 대기에 쓸 수 없다', () => {
+      expect(() => waiting().markUnknown(null)).toThrow('WAITING_FOR_DEPOSIT');
+    });
+  });
+
   it('IN_PROGRESS·UNKNOWN이 아닌 결제에는 반영할 수 없다', () => {
     const payment = started();
     payment.applyTossPayment(tossPayment());

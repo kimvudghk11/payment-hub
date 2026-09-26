@@ -6,6 +6,12 @@
 
 ### 2026-09-27
 
+#### feat(payment): 가상계좌 입금 대기 → 입금 완료·만료 전이 추가
+- **무엇을**: `Payment.applyTossPayment`가 `WAITING_FOR_DEPOSIT`에서도 동작 — 토스 `DONE` → `DONE`(승인 시각 = 입금 시각), 입금 전 `EXPIRED`·`CANCELED` → `EXPIRED`, 그 외(여전히 입금 대기·알 수 없는 상태)는 입금 대기 유지. 실패·불명 처리(`markFailed`·`markUnknown`)는 여전히 입금 대기에 쓸 수 없음
+- **왜**: 토스 웹훅·대사가 입금 결과를 반영할 도메인 규칙. 입금 대기에서 모르는 상태를 받았다고 `UNKNOWN`으로 떨어뜨리면 이미 발급된 가상계좌가 "결과 불명"으로 보임
+- **변경 파일**: `src/payment/domain/payment.entity.ts`, `test/payment/payment.entity.spec.ts`
+- **남은 작업 / 주의**: 입금 전 가상계좌가 만료될 때 토스가 `EXPIRED`와 `CANCELED` 중 무엇을 주는지는 실제 토스로 확인 필요 (둘 다 EXPIRED로 처리)
+
 #### feat(payment): 환불 대사 추가 — 결과 불명·멈춘 취소를 같은 멱등키로 토스에 재확인
 - **무엇을**: `PaymentCancelService.resolvePending(cancelId)` — REQUESTED·UNKNOWN 취소를 원래와 같은 `Idempotency-Key`(`cancel:<paymentCancelId>`)·금액·사유로 토스에 다시 보내고 결과를 기존 반영 로직(결제·주문·원장·outbox)으로 확정. 여전히 모르면 `updated_at`만 갱신. `PaymentReconciler.reconcileCancelsDue()`(2분 이상 지난 것, 오래된 순), 대사 스케줄러가 결제 → 환불 순서로 실행. 토스 호출부를 `callToss`로 추출
 - **왜**:
