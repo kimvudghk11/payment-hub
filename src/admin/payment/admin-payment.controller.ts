@@ -1,11 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiProperty, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { AdminApi } from '../../common/decorators/auth.decorator';
+import { CurrentAdminActor } from '../../common/decorators/current-actor.decorator';
 import { ResponseMessage } from '../../common/decorators/response-message.decorator';
+import { AdminActor } from '../../common/types/request-context';
 import { IPageable } from '../../common/interceptors/response.interceptor';
 import { OrderResponseDto } from '../../order/dto/response/order.response.dto';
 import { PaymentCancelResponseDto } from '../../payment/dto/response/payment-cancel.response.dto';
 import { AdminPaymentService } from './admin-payment.service';
+import { AdminCancelPaymentRequestDto } from './dto/request/admin-cancel-payment.request.dto';
 import { AdminListPaymentsQueryDto } from './dto/request/admin-list-payments.query.dto';
 import {
   AdminLedgerTransactionResponseDto,
@@ -14,6 +17,14 @@ import {
   AdminPaymentResponseDto,
   AdminWebhookDeliveryResponseDto,
 } from './dto/response/admin-payment.response.dto';
+
+class AdminCancelPaymentResponseDto {
+  @ApiProperty({ type: PaymentCancelResponseDto })
+  cancel: PaymentCancelResponseDto;
+
+  @ApiProperty({ type: AdminPaymentResponseDto })
+  payment: AdminPaymentResponseDto;
+}
 
 @ApiTags('관리자 API — 결제')
 @ApiBearerAuth('admin-api-key')
@@ -56,6 +67,28 @@ export class AdminPaymentController {
         AdminWebhookDeliveryResponseDto.from(delivery, event),
       ),
       providerResponse: payment.providerResponse,
+    });
+  }
+
+  @Post(':paymentId/cancel')
+  @HttpCode(200)
+  @ApiOperation({
+    summary: '수동 환불',
+    description:
+      '서비스 환불과 같은 규칙(환불 가능 금액 상한·항목·멱등)에 requestedBy=ADMIN. reason 필수(없으면 400 ADMIN_REASON_REQUIRED, 토스 호출 전). ' +
+      '감사 로그 PAYMENT_CANCELED_BY_ADMIN. idempotencyKey는 서비스의 환불 멱등키와 섞이지 않는다',
+  })
+  @ResponseMessage('환불이 완료되었습니다.')
+  @ApiResponse({ status: 200, type: AdminCancelPaymentResponseDto })
+  async cancel(
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: AdminCancelPaymentRequestDto,
+    @CurrentAdminActor() actor: AdminActor,
+  ): Promise<AdminCancelPaymentResponseDto> {
+    const { cancel, payment, order } = await this.adminPaymentService.cancel(paymentId, dto, actor);
+    return Object.assign(new AdminCancelPaymentResponseDto(), {
+      cancel: PaymentCancelResponseDto.from(cancel),
+      payment: AdminPaymentResponseDto.fromAdmin(payment, order),
     });
   }
 }

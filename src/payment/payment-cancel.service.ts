@@ -23,6 +23,11 @@ export interface CancelPaymentCommand {
   request: CancelRequest;
   /** 가상계좌 환불 계좌. 토스에 전달만 하고 저장하지 않는다 */
   refundReceiveAccount?: { bankCode: string; accountNumber: string; holderName: string };
+  /**
+   * 취소 요청을 기록한 트랜잭션(tx1) 안에서 실행 — 토스 호출 전. admin 수동 환불의 감사 로그용.
+   * 여기서 던지면(예: 사유 누락) 취소 기록도 롤백되고 토스를 부르지 않는다. 멱등 재요청에는 호출되지 않는다.
+   */
+  onRequested?: (cancel: PaymentCancel, payment: Payment) => Promise<void>;
 }
 
 export interface CancelView {
@@ -106,6 +111,7 @@ export class PaymentCancelService {
     const cancel = payment.requestCancel(command.request, orderItems);
     await this.cancels.save(cancel);
     if (cancel.items.length > 0) await this.cancelItems.save(cancel.items);
+    await command.onRequested?.(cancel, payment);
     return { view: { cancel, payment, order }, replayed: false };
   }
 

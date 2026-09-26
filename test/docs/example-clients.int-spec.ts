@@ -166,6 +166,32 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(reconciled).toMatchObject({ resolved: false, payment: { status: 'DONE' } });
   });
 
+  it('admin 수동 환불: 사유 필수, 결과는 결제 상세의 취소 이력에 requestedBy=ADMIN으로', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    const { order } = await client.createOrder(orderInput('ex-admin-refund-1'));
+    const payment = await client.confirmPayment({
+      orderId: order.orderId,
+      paymentKey: 'tgen_ex_admr_1',
+      amount: 10000,
+    });
+    toss.respond((request) => ({ status: 200, body: canceledPayment(request) }));
+
+    const noReason = await admin
+      .cancelPayment(actor, payment.paymentId, { amount: 10000, reasonCode: 'CS_REFUND', idempotencyKey: 'cs-1' })
+      .catch((e: unknown) => e);
+    const refunded = await admin.cancelPayment(actor, payment.paymentId, {
+      amount: 10000,
+      reasonCode: 'CS_REFUND',
+      reason: '고객 요청 전액 환불',
+      idempotencyKey: 'cs-1',
+    });
+
+    expect(noReason).toMatchObject({ status: 400, code: 'ADMIN_REASON_REQUIRED' });
+    expect(refunded).toMatchObject({ cancel: { requestedBy: 'ADMIN' }, payment: { status: 'CANCELED' } });
+    expect((await admin.getPayment(actor, payment.paymentId)).cancels.map((c) => c.requestedBy)).toEqual(['ADMIN']);
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });

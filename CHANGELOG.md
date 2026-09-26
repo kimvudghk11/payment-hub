@@ -6,6 +6,20 @@
 
 ### 2026-09-27
 
+#### feat(admin): 관리자 수동 환불 API(POST /admin/payments/:id/cancel) 추가
+- **무엇을**:
+  - 서비스 환불과 같은 유스케이스(`PaymentCancelService`)·규칙(환불 가능 금액 상한·항목·멱등·토스 결과 처리)에 `requestedBy = ADMIN`. 본문은 서비스 환불 + `reason`(필수)
+  - 감사 로그 `PAYMENT_CANCELED_BY_ADMIN`(before: 상태·환불 누적, after: 취소 ID·금액·사유 코드, reason)을 **취소 요청을 기록하는 트랜잭션(tx1) 안에서** — `CancelPaymentCommand.onRequested` 훅 추가
+  - admin 멱등키는 `admin:` 접두사로 저장 (최대 90자) → 서비스가 정한 환불 멱등키와 같은 문자열이어도 별개 환불
+  - 사유가 없으면 `reasonDetail` 대신 토스 취소 사유로도 `reason` 사용
+  - 예제 `examples/admin-client.ts`에 `cancelPayment`, api.md 2.5, admin 가이드 화면 매핑, README, OpenAPI 재생성
+- **왜**:
+  - CS 환불(서비스가 처리할 수 없는 경우)을 DB 직접 수정 없이 같은 도메인 규칙으로 처리 (CLAUDE.md 6.1)
+  - 감사 로그를 tx1에서 남겨 "사유 없는 수동 환불"이 토스까지 가지 않음 — 사유가 없으면 취소 기록도 롤백되는 것을 테스트로 확인. 감사 로그 없는 관리 쓰기가 생기지 않음
+  - 멱등키 접두사가 없으면 서비스와 admin이 우연히 같은 키를 쓸 때 서로의 환불을 "같은 요청"으로 오인 (접두사를 빼면 테스트가 409로 실패하는 것을 확인)
+- **변경 파일**: `src/admin/payment/*`, `src/payment/{payment-cancel.service,payment.module}.ts`, `examples/admin-client.ts`, `test/admin/admin-payment-cancel.int-spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`, `README.md`
+- **남은 작업 / 주의**: 환불 권한(예: 재무 권한만) 확인은 admin 레포 책임. 통합 테스트 전체 실행 10회 중 1회, 한 스위트(10건)가 실패했으나 재현·식별하지 못함 — 추적 필요
+
 #### feat(admin): 운영 큐 API 추가 — 실패 웹훅 조회·재전송, 대사 대기 결제 조회·수동 대사
 - **무엇을**:
   - `GET /admin/ops/webhook-deliveries` (`status`·`serviceId`, 최신순 cursor), `POST /admin/ops/webhook-deliveries/:id/redeliver` — 행 락 → `redeliver`(서비스의 현재 webhookUrl) → 저장 → 감사 로그 `WEBHOOK_REDELIVERED`(before/after). 이미 대기·전송 중이면 200·감사 로그 없음, webhookUrl이 없으면 `400`

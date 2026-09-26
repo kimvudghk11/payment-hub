@@ -1674,6 +1674,62 @@
         ]
       }
     },
+    "/api/v1/admin/payments/{paymentId}/cancel": {
+      "post": {
+        "description": "서비스 환불과 같은 규칙(환불 가능 금액 상한·항목·멱등)에 requestedBy=ADMIN. reason 필수(없으면 400 ADMIN_REASON_REQUIRED, 토스 호출 전). 감사 로그 PAYMENT_CANCELED_BY_ADMIN. idempotencyKey는 서비스의 환불 멱등키와 섞이지 않는다",
+        "operationId": "AdminPaymentController_cancel",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCancelPaymentRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminCancelPaymentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "수동 환불",
+        "tags": [
+          "관리자 API — 결제"
+        ]
+      }
+    },
     "/api/v1/admin/ops/webhook-deliveries": {
       "get": {
         "description": "실패 큐는 status=DEAD. 서비스별, 최신순 cursor 페이징",
@@ -4236,6 +4292,71 @@
           "ledger",
           "webhookDeliveries",
           "providerResponse"
+        ]
+      },
+      "AdminCancelPaymentRequestDto": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "환불 금액. 계산(일할 등)은 서비스 책임, 상한은 환불 가능 금액",
+            "example": 3000
+          },
+          "reasonCode": {
+            "type": "string",
+            "description": "서비스 정의 사유 코드 (hub는 저장만)",
+            "example": "USER_REQUEST"
+          },
+          "reasonDetail": {
+            "type": "string",
+            "description": "사유 설명. 토스 cancelReason으로 전달 (없으면 reasonCode)",
+            "example": "저장공간 1개 환불"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "멱등키 (admin 화면의 요청 ID 등, 최대 90자)",
+            "example": "cs-ticket-4821"
+          },
+          "items": {
+            "description": "항목별 취소 기록 (부분 환불 추적용)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CancelItemRequestDto"
+            }
+          },
+          "refundReceiveAccount": {
+            "description": "가상계좌 결제만 필수",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RefundReceiveAccountRequestDto"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "환불 사유 (필수 — 감사 로그, 토스 취소 사유)",
+            "example": "CS 문의 — 중복 결제 환불"
+          }
+        },
+        "required": [
+          "amount",
+          "reasonCode",
+          "idempotencyKey"
+        ]
+      },
+      "AdminCancelPaymentResponseDto": {
+        "type": "object",
+        "properties": {
+          "cancel": {
+            "$ref": "#/components/schemas/PaymentCancelResponseDto"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/AdminPaymentResponseDto"
+          }
+        },
+        "required": [
+          "cancel",
+          "payment"
         ]
       },
       "AdminWebhookDeliveryPageResponseDto": {

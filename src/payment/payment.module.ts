@@ -25,7 +25,7 @@ import { PaymentService } from './payment.service';
     OutboxModule,
   ],
   controllers: [PaymentController],
-  exports: [PaymentReconciler],
+  exports: [PaymentReconciler, PaymentCancelService],
   providers: [
     PaymentService,
     PaymentCancelService,

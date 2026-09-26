@@ -225,6 +225,30 @@ export class PaymentHubAdminClient {
     return this.call<AdminPaymentDetail>(actor, 'GET', `/admin/payments/${paymentId}`);
   }
 
+  /**
+   * 수동 환불. reason 필수 (감사 로그·토스 취소 사유). idempotencyKey는 admin 화면의 요청 ID처럼 재시도에도 같은 값.
+   * 환불 권한 확인(예: 재무 권한만)은 이 호출 전에 admin 레포가 한다.
+   */
+  async cancelPayment(
+    actor: AdminActor,
+    paymentId: string,
+    input: {
+      amount: number;
+      reasonCode: string;
+      reason?: string;
+      idempotencyKey: string;
+      items?: { orderItemId: string; quantity: number; amount: number }[];
+      refundReceiveAccount?: { bankCode: string; accountNumber: string; holderName: string };
+    },
+  ) {
+    return this.call<{ cancel: PaymentCancel; payment: AdminPayment }>(
+      actor,
+      'POST',
+      `/admin/payments/${paymentId}/cancel`,
+      input,
+    );
+  }
+
   // ---------- 운영 큐 ----------
 
   /** 웹훅 전달 내역. 실패 큐는 status: 'DEAD' */

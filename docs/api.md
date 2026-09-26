@@ -271,7 +271,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 |---|---|---|---|---|
 | `GET` | `/admin/payments` | 전 서비스 결제 검색 | | ✅ |
 | `GET` | `/admin/payments/:paymentId` | 결제 상세 — 주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본 | | ✅ |
-| `POST` | `/admin/payments/:paymentId/cancel` | 수동 환불 (`reason` 필수, `requested_by = ADMIN`) | `PAYMENT_CANCELED_BY_ADMIN` | 🚧 |
+| `POST` | `/admin/payments/:paymentId/cancel` | 수동 환불 (`reason` 필수, `requested_by = ADMIN`) | `PAYMENT_CANCELED_BY_ADMIN` | ✅ |
 | `GET` | `/admin/ops/unknown-payments` | 대사 대기 결제 (`IN_PROGRESS`·`UNKNOWN` 오래된 순, `serviceId`·`limit`) | | ✅ |
 | `POST` | `/admin/ops/payments/:paymentId/reconcile` | 수동 대사 (토스 조회로 지금 확정). 응답 `{ resolved, payment }`. 확정했을 때만 감사 로그 | `PAYMENT_RECONCILED` | ✅ |
 | `GET` | `/admin/ops/webhook-deliveries` | 웹훅 전달 내역 (`status=DEAD` 등, `serviceId`, 최신순 cursor) | | ✅ |
@@ -281,6 +281,8 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `GET` | `/admin/audit-logs` | 감사 로그 (actor·대상·서비스·기간) | | 🚧 |
 
 **`GET /admin/payments` 필터**: `serviceId`, `status`(쉼표로 여러 개), `methodType`, `cardCompanyCode`, `from`, `to`, `externalUserId`, `externalOrderId`, `externalSubscriptionId`, `paymentKey`(토스), `limit`, `cursor`. 항목은 서비스 결제 응답 + `serviceId`·`providerPaymentKey`
+
+**`POST /admin/payments/:paymentId/cancel`**: 본문은 서비스 환불(3.4)과 같고 `reason`(필수, 최대 200자)이 추가된다. `idempotencyKey`는 최대 90자이며 서비스의 환불 멱등키와 섞이지 않는다. 사유가 없으면 토스 호출 전에 `400 ADMIN_REASON_REQUIRED`(취소도 기록되지 않음). 사유는 `reasonDetail`이 없으면 토스 취소 사유로도 쓰인다. 감사 로그는 취소 요청을 기록하는 트랜잭션에서 남고, 결과(성공·거절·결과 불명)와 응답 형식은 서비스 환불과 같다 (`payment`는 관리자 형식)
 
 **`GET /admin/payments/:paymentId`**: 결제 + `order`(항목 포함) + `cancels` + `ledger`(`[{ transactionType, referenceType, occurredAt, entries: [{ accountCode, direction, amount }] }]`, 사건 순) + `webhookDeliveries`(`webhookDeliveryId`, `eventId`, `eventType`, `status`, `attemptCount`, `lastHttpStatus`, `lastError`, `deliveredAt`, `targetUrl`) + `providerResponse`(PG 응답 원본 — **관리자에게만**). 조회는 감사 로그를 남기지 않는다
 

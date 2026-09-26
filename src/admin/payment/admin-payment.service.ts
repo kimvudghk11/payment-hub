@@ -10,7 +10,12 @@ import { Order } from '../../order/domain/order.entity';
 import { OutboxEvent } from '../../outbox/domain/outbox-event.entity';
 import { WebhookDelivery } from '../../outbox/domain/webhook-delivery.entity';
 import { Payment } from '../../payment/domain/payment.entity';
+import { CancelView, PaymentCancelService } from '../../payment/payment-cancel.service';
 import { PaymentSearchFilters, searchPayments } from '../../payment/payment-search';
+import { AdminActor } from '../../common/types/request-context';
+import { AdminAuditService } from '../audit/admin-audit.service';
+import { AdminAuditAction, AuditTargetType } from '../audit/constants/admin-audit.constants';
+import { AdminCancelPaymentRequestDto } from './dto/request/admin-cancel-payment.request.dto';
 
 export interface AdminPaymentDetail {
   payment: Payment;
@@ -30,6 +35,8 @@ export class AdminPaymentService {
     @InjectRepository(LedgerAccount) private readonly ledgerAccounts: Repository<LedgerAccount>,
     @InjectRepository(OutboxEvent) private readonly events: Repository<OutboxEvent>,
     @InjectRepository(WebhookDelivery) private readonly deliveries: Repository<WebhookDelivery>,
+    private readonly cancelService: PaymentCancelService,
+    private readonly audit: AdminAuditService,
   ) {}
 
   list(filters: PaymentSearchFilters): Promise<IPageable<{ payment: Payment; order: Order }>> {
@@ -73,5 +80,32 @@ export class AdminPaymentService {
           .map((delivery) => ({ delivery, event })),
       ),
     };
+  }
+
+  /**
+   * 수동 환불. 서비스 환불과 같은 도메인 로직(상한·항목·멱등)에 requestedBy=ADMIN.
+   * 감사 로그는 취소 요청을 기록하는 트랜잭션 안에서 — 사유가 없으면 토스를 부르기 전에 전부 롤백된다.
+   */
+  async cancel(paymentId: string, dto: AdminCancelPaymentRequestDto, actor: AdminActor): Promise<CancelView> {
+    const payment = await this.payments.findOneBy({ paymentId });
+    if (!payment) throw new BusinessException(ErrorCode.PAYMENT_NOT_FOUND);
+
+    return this.cancelService.cancel({
+      serviceId: payment.serviceId,
+      paymentId,
+      request: dto.toAdminRequest(),
+      refundReceiveAccount: dto.refundReceiveAccount,
+      onRequested: (cancel, locked) =>
+        this.audit.record({
+          actor,
+          action: AdminAuditAction.PAYMENT_CANCELED_BY_ADMIN,
+          targetType: AuditTargetType.PAYMENT,
+          targetId: locked.paymentId,
+          serviceId: locked.serviceId,
+          before: { status: locked.status, refundedAmount: locked.refundedAmount },
+          after: { paymentCancelId: cancel.paymentCancelId, amount: cancel.amount, reasonCode: cancel.reasonCode },
+          reason: dto.reason,
+        }),
+    });
   }
 }

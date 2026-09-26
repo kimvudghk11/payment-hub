@@ -27,7 +27,7 @@
 - hub는 actor 헤더를 검증하지 않고 **신뢰**한다. 그래서 admin API는 네트워크에서도 막는다(내부망·IP 허용 목록). 서비스 API와 같은 공개 경로로 노출하지 않는다
 - 관리자 권한 확인(예: "환불은 재무 권한만")은 admin 레포가 hub를 호출하기 **전에** 한다
 
-**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회·운영 큐 ✅ / 수동 환불·리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
+**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회·운영 큐·수동 환불 ✅ / 리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
 
 ---
 
@@ -170,7 +170,8 @@ const { apiKey } = await hub.issueApiKey(actor, service.serviceId, { label: 'pro
 | | 재전송 | `POST /admin/ops/webhook-deliveries/:id/redeliver` | 서비스의 현재 webhookUrl로. 아래 운영 절차 참고 |
 | **대사 대기 결제** | 조회 | `GET /admin/ops/unknown-payments` | 오래된 순 |
 | | 수동 대사 | `POST /admin/ops/payments/:id/reconcile` | `resolved: false`면 토스도 아직 모름 |
-| 수동 환불·리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
+| **수동 환불** | 환불 | `POST /admin/payments/:id/cancel { amount, reasonCode, reason, idempotencyKey }` | 사유 필수. 권한 확인(재무 등)은 admin 레포가 먼저. 환불 가능 금액은 `GET /admin/payments/:id`의 `refundableAmount` |
+| 리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
 
 ---
 
