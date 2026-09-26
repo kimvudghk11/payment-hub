@@ -5,6 +5,7 @@
  * 이 파일은 test/docs/example-clients.int-spec.ts가 실제 hub에 붙여 검증한다.
  */
 import { callPaymentHub, Page } from './http';
+import type { Order, Payment, PaymentCancel, PaymentStatus } from './service-client';
 
 export interface AdminActor {
   actorId: string;
@@ -55,6 +56,55 @@ export interface ProductType {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AdminPaymentSearch {
+  serviceId?: string;
+  status?: PaymentStatus[];
+  methodType?: string;
+  cardCompanyCode?: string;
+  externalUserId?: string;
+  externalOrderId?: string;
+  paymentKey?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+/** 서비스 응답의 결제 + 서비스 ID·토스 paymentKey */
+export interface AdminPayment extends Payment {
+  serviceId: string;
+  providerPaymentKey: string | null;
+}
+
+export interface AdminWebhookDelivery {
+  webhookDeliveryId: string;
+  eventId: string;
+  eventType: string;
+  serviceId: string;
+  status: 'PENDING' | 'PROCESSING' | 'SUCCEEDED' | 'RETRYING' | 'DEAD';
+  attemptCount: number;
+  nextAttemptAt: string;
+  lastHttpStatus: number | null;
+  lastError: string | null;
+  deliveredAt: string | null;
+  targetUrl: string;
+  occurredAt: string;
+}
+
+export interface AdminPaymentDetail extends AdminPayment {
+  order: Order;
+  cancels: PaymentCancel[];
+  ledger: {
+    transactionType: string;
+    referenceType: string;
+    occurredAt: string;
+    entries: { accountCode: string; direction: 'DEBIT' | 'CREDIT'; amount: number }[];
+  }[];
+  webhookDeliveries: AdminWebhookDelivery[];
+  /** PG 응답 원본 — 관리자에게만 */
+  providerResponse: Record<string, unknown> | null;
 }
 
 export class PaymentHubAdminClient {
@@ -157,6 +207,22 @@ export class PaymentHubAdminClient {
     input: { name?: string; isActive?: boolean },
   ) {
     return this.call<ProductType>(actor, 'PATCH', `/admin/services/${serviceId}/product-types/${code}`, input);
+  }
+
+  // ---------- 결제 조회 ----------
+
+  /** 전 서비스 결제 검색. status는 여러 개 가능 (CS: 토스 paymentKey·사용자 ID로 찾기) */
+  async searchPayments(actor: AdminActor, query: AdminPaymentSearch = {}) {
+    const { status, ...rest } = query;
+    return this.call<Page<AdminPayment>>(actor, 'GET', '/admin/payments', undefined, {
+      ...rest,
+      status: status?.join(','),
+    });
+  }
+
+  /** 주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본 */
+  async getPayment(actor: AdminActor, paymentId: string) {
+    return this.call<AdminPaymentDetail>(actor, 'GET', `/admin/payments/${paymentId}`);
   }
 
   private async call<T>(

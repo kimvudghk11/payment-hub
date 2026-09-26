@@ -269,8 +269,8 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
 |---|---|---|---|---|
-| `GET` | `/admin/payments` | 전 서비스 결제 검색 | | 🚧 |
-| `GET` | `/admin/payments/:paymentId` | 결제 상세 — 주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본 | | 🚧 |
+| `GET` | `/admin/payments` | 전 서비스 결제 검색 | | ✅ |
+| `GET` | `/admin/payments/:paymentId` | 결제 상세 — 주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본 | | ✅ |
 | `POST` | `/admin/payments/:paymentId/cancel` | 수동 환불 (`reason` 필수, `requested_by = ADMIN`) | `PAYMENT_CANCELED_BY_ADMIN` | 🚧 |
 | `GET` | `/admin/ops/unknown-payments` | 대사 대기 결제 (`IN_PROGRESS`·`UNKNOWN` 오래된 순) | | 🚧 |
 | `POST` | `/admin/ops/payments/:paymentId/reconcile` | 수동 대사 (토스 조회로 상태 확정) | `PAYMENT_RECONCILED` | 🚧 |
@@ -280,7 +280,9 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `GET` | `/admin/reports/revenue` | 매출·환불 집계 (서비스별·일별·월별, KST 경계, `methodType`별) | | 🚧 |
 | `GET` | `/admin/audit-logs` | 감사 로그 (actor·대상·서비스·기간) | | 🚧 |
 
-**`GET /admin/payments` 필터**: `serviceId`, `status`, `methodType`, `cardCompanyCode`, `from`, `to`, `externalUserId`, `externalOrderId`, `paymentKey`
+**`GET /admin/payments` 필터**: `serviceId`, `status`(쉼표로 여러 개), `methodType`, `cardCompanyCode`, `from`, `to`, `externalUserId`, `externalOrderId`, `externalSubscriptionId`, `paymentKey`(토스), `limit`, `cursor`. 항목은 서비스 결제 응답 + `serviceId`·`providerPaymentKey`
+
+**`GET /admin/payments/:paymentId`**: 결제 + `order`(항목 포함) + `cancels` + `ledger`(`[{ transactionType, referenceType, occurredAt, entries: [{ accountCode, direction, amount }] }]`, 사건 순) + `webhookDeliveries`(`webhookDeliveryId`, `eventId`, `eventType`, `status`, `attemptCount`, `lastHttpStatus`, `lastError`, `deliveredAt`, `targetUrl`) + `providerResponse`(PG 응답 원본 — **관리자에게만**). 조회는 감사 로그를 남기지 않는다
 
 ---
 

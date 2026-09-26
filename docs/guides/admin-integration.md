@@ -27,7 +27,7 @@
 - hub는 actor 헤더를 검증하지 않고 **신뢰**한다. 그래서 admin API는 네트워크에서도 막는다(내부망·IP 허용 목록). 서비스 API와 같은 공개 경로로 노출하지 않는다
 - 관리자 권한 확인(예: "환불은 재무 권한만")은 admin 레포가 hub를 호출하기 **전에** 한다
 
-**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회·수동 환불·운영 큐·리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
+**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회 ✅ / 수동 환불·운영 큐·리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
 
 ---
 
@@ -164,7 +164,9 @@ const { apiKey } = await hub.issueApiKey(actor, service.serviceId, { label: 'pro
 | **상품 유형** | 목록 | `GET /admin/services/:id/product-types?isActive=` | 코드순 |
 | | 등록 | `POST /admin/services/:id/product-types` | 같은 코드 `409 PRODUCT_TYPE_DUPLICATED` |
 | | 수정·중지·재개 | `PATCH …/product-types/:code` `{ name?, isActive? }` | **삭제 없음** — 중지는 새 주문에만 영향 |
-| 결제·운영·리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
+| **결제 검색** | 조회 | `GET /admin/payments?serviceId=&status=&paymentKey=&externalUserId=…` | CS: 토스 paymentKey·사용자 ID로 찾기. `status`는 쉼표로 여러 개 |
+| **결제 상세** | 조회 | `GET /admin/payments/:id` | 주문·취소 이력·원장 분개·웹훅 전달 내역·PG 응답 원본을 한 화면에 |
+| 수동 환불·운영·리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
 
 ---
 

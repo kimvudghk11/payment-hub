@@ -124,6 +124,25 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect((await client.getPayment(payment.paymentId)).cancels).toHaveLength(1);
   });
 
+  it('admin: 토스 paymentKey로 결제를 찾고 상세(원장·웹훅 전달 내역)를 본다', async () => {
+    const { service, apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    const { order } = await client.createOrder(orderInput('ex-admin-pay-1'));
+    const payment = await client.confirmPayment({
+      orderId: order.orderId,
+      paymentKey: 'tgen_ex_admin_1',
+      amount: 10000,
+    });
+
+    const found = await admin.searchPayments(actor, { paymentKey: 'tgen_ex_admin_1' });
+    const detail = await admin.getPayment(actor, payment.paymentId);
+
+    expect(found.data.map((p) => p.paymentId)).toEqual([payment.paymentId]);
+    expect(found.data[0].serviceId).toBe(service.serviceId);
+    expect(detail.ledger.map((tx) => tx.transactionType)).toEqual(['PAYMENT_CAPTURED']);
+    expect(detail.order.items).toHaveLength(1);
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });

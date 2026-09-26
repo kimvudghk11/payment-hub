@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { Transactional } from 'typeorm-transactional';
 import { EncryptionService } from '../common/crypto/encryption.service';
-import { paginateByCreatedAt } from '../common/database/cursor-pagination';
 import { BusinessException } from '../common/errors/business.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { IPageable } from '../common/interceptors/response.interceptor';
@@ -16,6 +15,7 @@ import { ServiceService } from '../service/service.service';
 import { PaymentStatus } from './constants/payment.constants';
 import { Payment } from './domain/payment.entity';
 import { ListPaymentsQueryDto } from './dto/request/list-payments.query.dto';
+import { searchPayments } from './payment-search';
 import { PaymentOutcomeService } from './payment-outcome.service';
 
 export interface ConfirmPaymentCommand {
@@ -91,34 +91,8 @@ export class PaymentService {
 
   /** 결제 목록 (서비스 + 사용자 단위 이력 등). 주문의 외부 ID로 거르기 위해 주문과 조인한다 */
   async list(serviceId: string, query: ListPaymentsQueryDto): Promise<IPageable<PaymentView>> {
-    const filtered = this.payments
-      .createQueryBuilder('p')
-      .innerJoin(Order, 'o', 'o.orderId = p.orderId AND o.serviceId = p.serviceId')
-      .where('p.serviceId = :serviceId', { serviceId });
-    if (query.externalUserId) filtered.andWhere('o.externalUserId = :eu', { eu: query.externalUserId });
-    if (query.externalOrderId) filtered.andWhere('o.externalOrderId = :eo', { eo: query.externalOrderId });
-    if (query.externalSubscriptionId) {
-      filtered.andWhere('o.externalSubscriptionId = :es', { es: query.externalSubscriptionId });
-    }
-    if (query.status?.length) filtered.andWhere('p.status IN (:...statuses)', { statuses: query.status });
-    if (query.methodType) filtered.andWhere('p.methodType = :methodType', { methodType: query.methodType });
-    if (query.from) filtered.andWhere('p.createdAt >= :from', { from: new Date(query.from) });
-    if (query.to) filtered.andWhere('p.createdAt < :to', { to: new Date(query.to) });
-
-    const page = await paginateByCreatedAt(filtered, {
-      alias: 'p',
-      idProperty: 'paymentId',
-      limit: query.limit,
-      cursor: query.cursor,
-    });
-    const orderIds = [...new Set(page.data.map((payment) => payment.orderId))];
-    const orders = new Map(
-      (await this.orders.findBy({ serviceId, orderId: In(orderIds) })).map((order) => [order.orderId, order]),
-    );
-    return {
-      ...page,
-      data: page.data.map((payment) => ({ payment, order: orders.get(payment.orderId) as Order })),
-    };
+    // 서비스는 자기 서비스 결제만 — serviceId는 요청 값이 아니라 인증 결과로 고정
+    return searchPayments({ payments: this.payments, orders: this.orders }, { ...query, serviceId });
   }
 
   /** 환불 가능 금액과 항목별 취소 수량 계산에 필요한 결제·주문 항목 */

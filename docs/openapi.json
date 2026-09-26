@@ -1463,6 +1463,216 @@
           "관리자 API — 상품 유형"
         ]
       }
+    },
+    "/api/v1/admin/payments": {
+      "get": {
+        "description": "서비스·상태(쉼표 여러 개)·수단·카드사·기간·사용자·서비스 주문번호·토스 paymentKey 필터, 최신순 cursor 페이징",
+        "operationId": "AdminPaymentController_list",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalUserId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 쪽 사용자 ID — 서비스 + 사용자 단위 결제 이력",
+            "schema": {
+              "example": "user-123",
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalOrderId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 쪽 주문번호",
+            "schema": {
+              "example": "svc-a-order-20260927-0001",
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalSubscriptionId",
+            "required": false,
+            "in": "query",
+            "description": "구독 ID — 구독 결제 체인 (일할 환불 계산용)",
+            "schema": {
+              "example": "sub-77",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "결제 상태. 쉼표로 여러 개 (IN_PROGRESS, UNKNOWN, WAITING_FOR_DEPOSIT, DONE, PARTIAL_CANCELED, CANCELED, FAILED, ABORTED, EXPIRED)",
+            "schema": {
+              "example": "DONE,PARTIAL_CANCELED",
+              "type": "string"
+            }
+          },
+          {
+            "name": "methodType",
+            "required": false,
+            "in": "query",
+            "description": "결제 수단 분류",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CARD",
+                "VIRTUAL_ACCOUNT",
+                "TRANSFER",
+                "EASY_PAY",
+                "MOBILE_PHONE",
+                "GIFT_CERTIFICATE"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "결제 시도 시각 이상 (ISO 8601)",
+            "schema": {
+              "example": "2026-09-01T00:00:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "결제 시도 시각 미만 (ISO 8601)",
+            "schema": {
+              "example": "2026-10-01T00:00:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "페이지 크기",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "이전 응답의 nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cardCompanyCode",
+            "required": false,
+            "in": "query",
+            "description": "토스 카드사 코드 (issuerCode)",
+            "schema": {
+              "example": "11",
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentKey",
+            "required": false,
+            "in": "query",
+            "description": "토스 paymentKey (토스 대시보드·CS 문의에서 넘어온 키)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPaymentPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "전 서비스 결제 검색",
+        "tags": [
+          "관리자 API — 결제"
+        ]
+      }
+    },
+    "/api/v1/admin/payments/{paymentId}": {
+      "get": {
+        "description": "주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본을 한 번에",
+        "operationId": "AdminPaymentController_detail",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPaymentDetailResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "결제 상세",
+        "tags": [
+          "관리자 API — 결제"
+        ]
+      }
     }
   },
   "info": {
@@ -3303,6 +3513,475 @@
             "example": false
           }
         }
+      },
+      "AdminPaymentResponseDto": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "description": "결제 ID",
+            "example": "a9d20000-0000-4000-8000-000000000001"
+          },
+          "orderId": {
+            "type": "string",
+            "description": "hub 주문 ID",
+            "example": "3f1a0000-0000-4000-8000-000000000001"
+          },
+          "externalOrderId": {
+            "type": "string",
+            "description": "서비스 쪽 주문번호",
+            "example": "svc-a-order-20260927-0001"
+          },
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "orderName": {
+            "type": "string",
+            "description": "주문명",
+            "example": "프로 요금제 1개월"
+          },
+          "paymentType": {
+            "type": "string",
+            "description": "결제 유형",
+            "enum": [
+              "NORMAL",
+              "BILLING"
+            ],
+            "example": "NORMAL"
+          },
+          "status": {
+            "type": "string",
+            "description": "결제 상태",
+            "enum": [
+              "IN_PROGRESS",
+              "UNKNOWN",
+              "WAITING_FOR_DEPOSIT",
+              "DONE",
+              "PARTIAL_CANCELED",
+              "CANCELED",
+              "FAILED",
+              "ABORTED",
+              "EXPIRED"
+            ],
+            "example": "DONE"
+          },
+          "amount": {
+            "type": "number",
+            "description": "결제 금액",
+            "example": 30000
+          },
+          "refundedAmount": {
+            "type": "number",
+            "description": "환불 누적 금액",
+            "example": 0
+          },
+          "refundableAmount": {
+            "type": "number",
+            "description": "환불 가능 금액 (승인 전·실패 결제는 0)",
+            "example": 30000
+          },
+          "currency": {
+            "type": "string",
+            "description": "통화",
+            "example": "KRW"
+          },
+          "method": {
+            "description": "결제 수단. 승인 전(IN_PROGRESS·UNKNOWN)에는 필드가 모두 null",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentMethodResponseDto"
+              }
+            ]
+          },
+          "receiptUrl": {
+            "type": "string",
+            "description": "영수증 URL",
+            "nullable": true
+          },
+          "approvedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "승인 시각",
+            "nullable": true
+          },
+          "failure": {
+            "nullable": true,
+            "description": "실패 사유 (FAILED일 때)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentFailureResponseDto"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "결제 시도 시각",
+            "example": "2026-09-27T01:15:00.000Z"
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID"
+          },
+          "providerPaymentKey": {
+            "type": "string",
+            "description": "토스 paymentKey",
+            "nullable": true
+          }
+        },
+        "required": [
+          "paymentId",
+          "orderId",
+          "externalOrderId",
+          "externalUserId",
+          "orderName",
+          "paymentType",
+          "status",
+          "amount",
+          "refundedAmount",
+          "refundableAmount",
+          "currency",
+          "method",
+          "receiptUrl",
+          "approvedAt",
+          "failure",
+          "createdAt",
+          "serviceId",
+          "providerPaymentKey"
+        ]
+      },
+      "AdminPaymentPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminPaymentResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "description": "필터에 맞는 전체 개수"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "다음 페이지 cursor. 마지막이면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "AdminLedgerEntryResponseDto": {
+        "type": "object",
+        "properties": {
+          "accountCode": {
+            "type": "string",
+            "description": "계정 코드",
+            "example": "PG_RECEIVABLE"
+          },
+          "direction": {
+            "type": "string",
+            "description": "차변·대변",
+            "example": "DEBIT"
+          },
+          "amount": {
+            "type": "number",
+            "description": "금액",
+            "example": 30000
+          }
+        },
+        "required": [
+          "accountCode",
+          "direction",
+          "amount"
+        ]
+      },
+      "AdminLedgerTransactionResponseDto": {
+        "type": "object",
+        "properties": {
+          "transactionType": {
+            "type": "string",
+            "description": "분개 유형",
+            "example": "PAYMENT_CAPTURED"
+          },
+          "referenceType": {
+            "type": "string",
+            "description": "참조 유형 (PAYMENT / PAYMENT_CANCEL)",
+            "example": "PAYMENT"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "사건 발생 시각"
+          },
+          "entries": {
+            "description": "차변 먼저",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminLedgerEntryResponseDto"
+            }
+          }
+        },
+        "required": [
+          "transactionType",
+          "referenceType",
+          "occurredAt",
+          "entries"
+        ]
+      },
+      "AdminWebhookDeliveryResponseDto": {
+        "type": "object",
+        "properties": {
+          "webhookDeliveryId": {
+            "type": "string",
+            "description": "전달 ID (재전송 시 사용)"
+          },
+          "eventId": {
+            "type": "string",
+            "description": "이벤트 ID (서비스가 받는 X-PaymentHub-Event-Id)"
+          },
+          "eventType": {
+            "type": "string",
+            "description": "이벤트 유형",
+            "example": "PAYMENT_CONFIRMED"
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID"
+          },
+          "status": {
+            "type": "string",
+            "description": "전달 상태",
+            "example": "SUCCEEDED"
+          },
+          "attemptCount": {
+            "type": "number",
+            "description": "시도 횟수"
+          },
+          "nextAttemptAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "다음 시도 시각"
+          },
+          "lastHttpStatus": {
+            "type": "number",
+            "description": "마지막 HTTP 응답 코드",
+            "nullable": true
+          },
+          "lastError": {
+            "type": "string",
+            "description": "마지막 오류",
+            "nullable": true
+          },
+          "deliveredAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "전달 성공 시각",
+            "nullable": true
+          },
+          "targetUrl": {
+            "type": "string",
+            "description": "발행 시점 webhookUrl"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "이벤트 발생 시각"
+          }
+        },
+        "required": [
+          "webhookDeliveryId",
+          "eventId",
+          "eventType",
+          "serviceId",
+          "status",
+          "attemptCount",
+          "nextAttemptAt",
+          "lastHttpStatus",
+          "lastError",
+          "deliveredAt",
+          "targetUrl",
+          "occurredAt"
+        ]
+      },
+      "AdminPaymentDetailResponseDto": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "description": "결제 ID",
+            "example": "a9d20000-0000-4000-8000-000000000001"
+          },
+          "orderId": {
+            "type": "string",
+            "description": "hub 주문 ID",
+            "example": "3f1a0000-0000-4000-8000-000000000001"
+          },
+          "externalOrderId": {
+            "type": "string",
+            "description": "서비스 쪽 주문번호",
+            "example": "svc-a-order-20260927-0001"
+          },
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "orderName": {
+            "type": "string",
+            "description": "주문명",
+            "example": "프로 요금제 1개월"
+          },
+          "paymentType": {
+            "type": "string",
+            "description": "결제 유형",
+            "enum": [
+              "NORMAL",
+              "BILLING"
+            ],
+            "example": "NORMAL"
+          },
+          "status": {
+            "type": "string",
+            "description": "결제 상태",
+            "enum": [
+              "IN_PROGRESS",
+              "UNKNOWN",
+              "WAITING_FOR_DEPOSIT",
+              "DONE",
+              "PARTIAL_CANCELED",
+              "CANCELED",
+              "FAILED",
+              "ABORTED",
+              "EXPIRED"
+            ],
+            "example": "DONE"
+          },
+          "amount": {
+            "type": "number",
+            "description": "결제 금액",
+            "example": 30000
+          },
+          "refundedAmount": {
+            "type": "number",
+            "description": "환불 누적 금액",
+            "example": 0
+          },
+          "refundableAmount": {
+            "type": "number",
+            "description": "환불 가능 금액 (승인 전·실패 결제는 0)",
+            "example": 30000
+          },
+          "currency": {
+            "type": "string",
+            "description": "통화",
+            "example": "KRW"
+          },
+          "method": {
+            "description": "결제 수단. 승인 전(IN_PROGRESS·UNKNOWN)에는 필드가 모두 null",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentMethodResponseDto"
+              }
+            ]
+          },
+          "receiptUrl": {
+            "type": "string",
+            "description": "영수증 URL",
+            "nullable": true
+          },
+          "approvedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "승인 시각",
+            "nullable": true
+          },
+          "failure": {
+            "nullable": true,
+            "description": "실패 사유 (FAILED일 때)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PaymentFailureResponseDto"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "결제 시도 시각",
+            "example": "2026-09-27T01:15:00.000Z"
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID"
+          },
+          "providerPaymentKey": {
+            "type": "string",
+            "description": "토스 paymentKey",
+            "nullable": true
+          },
+          "order": {
+            "$ref": "#/components/schemas/OrderResponseDto"
+          },
+          "cancels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PaymentCancelResponseDto"
+            }
+          },
+          "ledger": {
+            "description": "사건 순",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminLedgerTransactionResponseDto"
+            }
+          },
+          "webhookDeliveries": {
+            "description": "이벤트 순",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminWebhookDeliveryResponseDto"
+            }
+          },
+          "providerResponse": {
+            "type": "object",
+            "description": "마지막 PG 응답 원본",
+            "nullable": true
+          }
+        },
+        "required": [
+          "paymentId",
+          "orderId",
+          "externalOrderId",
+          "externalUserId",
+          "orderName",
+          "paymentType",
+          "status",
+          "amount",
+          "refundedAmount",
+          "refundableAmount",
+          "currency",
+          "method",
+          "receiptUrl",
+          "approvedAt",
+          "failure",
+          "createdAt",
+          "serviceId",
+          "providerPaymentKey",
+          "order",
+          "cancels",
+          "ledger",
+          "webhookDeliveries",
+          "providerResponse"
+        ]
       }
     }
   }

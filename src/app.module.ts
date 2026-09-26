@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { addTransactionalDataSource } from 'typeorm-transactional';
+import { AdminPaymentModule } from './admin/payment/admin-payment.module';
 import { AdminServiceModule } from './admin/service/admin-service.module';
 import { databaseConfig } from './common/config/database.config';
 import { CryptoModule } from './common/crypto/crypto.module';
@@ -31,6 +32,7 @@ import { ServiceModule } from './service/service.module';
     OrderModule,
     PaymentModule,
     AdminServiceModule,
+    AdminPaymentModule,
   ],
 })
 export class AppModule {}

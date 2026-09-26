@@ -6,6 +6,16 @@
 
 ### 2026-09-27
 
+#### feat(admin): 전 서비스 결제 검색·결제 상세 API 추가
+- **무엇을**:
+  - `GET /admin/payments`: 서비스·상태(쉼표 여러 개)·수단·카드사·기간·사용자·서비스 주문번호·구독·**토스 paymentKey** 필터, 최신순 cursor 페이징. 항목에 `serviceId`·`providerPaymentKey` 추가
+  - `GET /admin/payments/:id`: 결제 + 주문·항목 + 취소 이력 + 원장 분개(계정 코드·차대·금액, 사건 순) + 웹훅 전달 내역(이벤트·상태·시도·마지막 오류) + PG 응답 원본
+  - 결제 검색 필터를 `payment/payment-search.ts`(`searchPayments`)로 추출해 서비스 API(`GET /payments`, serviceId는 인증값으로 고정)와 공유
+  - 예제 `examples/admin-client.ts`에 `searchPayments`·`getPayment`, api.md 2.5, admin 가이드 화면 매핑, OpenAPI 재생성
+- **왜**: CS·장애 대응 시 토스 대시보드의 paymentKey나 사용자 ID에서 출발해 hub의 기록(원장·웹훅 전달 여부·PG 원본)을 한 화면에서 볼 수 있어야 함. 이후 수동 대사·재전송·수동 환불 화면의 진입점. 필터 규칙을 한 곳에 두어 서비스·admin 검색이 어긋나지 않게 함
+- **변경 파일**: `src/admin/payment/*`, `src/payment/{payment-search,payment.service}.ts`, `src/app.module.ts`, `examples/admin-client.ts`, `test/admin/admin-payment.int-spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`
+- **남은 작업 / 주의**: PG 응답 원본은 관리자 응답에만 포함 (서비스 응답에는 없음). 조회는 감사 로그를 남기지 않음 (CLAUDE.md 6.5)
+
 #### feat(payment): 환불 API(POST /payments/:id/cancel) 및 결제 단건 취소 이력 추가
 - **무엇을**:
   - `POST /payments/:paymentId/cancel`: (tx1) 결제 행 락 → 멱등 재요청 확인 → 검증(`Payment.requestCancel`) → 취소 `REQUESTED`(+항목) 선기록 → 토스 취소(트랜잭션 밖, 멱등키 `cancel:<paymentCancelId>`) → (tx2) 취소 `DONE` + 결제 환불 누적·상태 + 주문 상태·항목 취소 수량 + 원장 `PAYMENT_CANCELED`(차 REFUND / 대 PG_RECEIVABLE) + outbox `PAYMENT_CANCELED`
