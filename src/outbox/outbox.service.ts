@@ -36,7 +36,7 @@ export class OutboxService {
 
   /** 환불 확정 (PAYMENT_CANCELED) */
   async publishPaymentCancelEvent(payment: Payment, order: Order, cancel: PaymentCancel): Promise<OutboxEvent> {
-    return this.publish(OutboxEvent.forPaymentCancel(payment, order, cancel));
+    return this.publish(OutboxEvent.forPaymentCancel(payment, order, cancel, new Date()));
   }
 
   private async publish(event: OutboxEvent): Promise<OutboxEvent> {

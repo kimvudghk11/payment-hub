@@ -6,6 +6,21 @@
 
 ### 2026-09-27
 
+#### feat(outbox): 이벤트 재조회 API(GET /events) 추가
+- **무엇을**:
+  - `GET /events?after=<eventId>&limit=` — 자기 서비스 이벤트를 발행 순서 `(occurred_at, id)`대로, 웹훅 본문과 같은 형태로. `nextCursor`는 다음 조회의 `after`. 다른 서비스 eventId면 404
+  - 발행 후 `EVENT_FEED_LAG_MS`(기본 5초)가 지난 이벤트만 반환
+  - `PAYMENT_CANCELED`의 `occurredAt`을 토스 취소 시각 → **발행 시각**으로 변경 (토스 시각은 `data.cancel.canceledAt`에 유지)
+  - 스키마: `ix_tb_outbox_event_service_feed (service_id, occurred_at, id)` 인덱스 추가
+  - 예제 `listEvents`·`catchUpEvents(lastEventId, handle)`, api.md 3.6, 가이드, OpenAPI
+- **왜**:
+  - 웹훅이 DEAD가 되거나 서비스가 이벤트를 유실했을 때 서비스 스스로 복구할 경로
+  - 발행 순서 커서는 "먼저 발행됐지만 늦게 커밋된" 이벤트를 건너뛸 수 있음 → 짧은 지연 창으로 완화 (별도 시퀀스 컬럼도 커밋 순서 문제는 같음)
+  - 이벤트마다 occurredAt 기준이 다르면(취소만 토스 시각) 재조회 순서가 발행 순서와 어긋남
+- **변경 파일**: `db/schema.sql`, `src/outbox/{event-feed.service,event-feed.controller,outbox.module,outbox.service}.ts`, `src/outbox/domain/outbox-event.entity.ts`, `examples/service-client.ts`, `test/outbox/*`, `test/docs/example-clients.int-spec.ts`, `docs/*`, `.env.example`
+- **스키마/에러 코드**: 인덱스 1개 추가 (컬럼 변경 없음)
+- **남은 작업 / 주의**: 트랜잭션이 지연 창(5초)보다 오래 걸리면 여전히 건너뛸 수 있음 — 웹훅이 1차 경로이고 재조회는 보조
+
 #### feat(order): 주문 만료 배치 추가 (ORDER_EXPIRED 이벤트)
 - **무엇을**: `OrderExpirer.expireDue()` — 만료 시각이 지난 PENDING 주문 중 살아있는 결제가 없는 것을 주문 행 락 + 재확인 후 `EXPIRED`로 바꾸고 `ORDER_EXPIRED` 이벤트(웹훅 전달 대상 포함) 발행. `Order.expire(now)`, `OutboxEvent.forOrder`, `OutboxService.publishOrderEvent`, `OrderExpiryScheduler`(기본 1분, `ORDER_EXPIRY_ENABLED`·`ORDER_EXPIRY_INTERVAL_MS`)
 - **왜**:

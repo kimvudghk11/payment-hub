@@ -177,6 +177,15 @@ export interface PaymentDetail extends Payment {
   cancels: PaymentCancel[];
 }
 
+/** 웹훅 본문·이벤트 재조회 항목 */
+export interface HubEvent {
+  eventId: string;
+  eventType:
+    'PAYMENT_CONFIRMED' | 'PAYMENT_FAILED' | 'PAYMENT_WAITING_FOR_DEPOSIT' | 'PAYMENT_CANCELED' | 'ORDER_EXPIRED';
+  occurredAt: string;
+  data: Record<string, unknown>;
+}
+
 export interface CancelPaymentInput {
   /** 환불 금액. 계산(일할 등)은 서비스가 하고, 상한은 getRefundable().refundableAmount */
   amount: number;
@@ -253,6 +262,30 @@ export class PaymentHubServiceClient {
   /** 환불 전에 상한(refundableAmount)과 항목별 취소 가능 수량을 확인한다 */
   async getRefundable(paymentId: string): Promise<Refundable> {
     return (await this.call<Refundable>('GET', `/payments/${paymentId}/refundable`)).data;
+  }
+
+  /** 이벤트 재조회: after 이후 이벤트를 발행 순서대로 (웹훅 본문과 같은 형태) */
+  async listEvents(query: { after?: string; limit?: number } = {}): Promise<Page<HubEvent>> {
+    return (await this.call<Page<HubEvent>>('GET', '/events', undefined, query)).data;
+  }
+
+  /**
+   * 놓친 웹훅 따라잡기. 마지막으로 처리한 eventId부터 끝까지 읽으며 handle을 호출하고, 마지막 eventId를 돌려준다.
+   * 돌려받은 값을 서비스 DB에 저장해 두고 다음 실행 때 넘긴다. handle은 웹훅 처리와 같은 코드(eventId 멱등)를 쓴다.
+   */
+  async catchUpEvents(
+    lastEventId: string | undefined,
+    handle: (event: HubEvent) => Promise<void>,
+  ): Promise<string | undefined> {
+    let after = lastEventId;
+    for (;;) {
+      const page = await this.listEvents({ after });
+      for (const event of page.data) {
+        await handle(event);
+        after = event.eventId;
+      }
+      if (!page.nextCursor) return after;
+    }
   }
 
   /**

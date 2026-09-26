@@ -707,7 +707,13 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| `GET` | `/events?after=<eventId>&limit=` | 웹훅을 놓쳤을 때 발생 순서대로 따라잡기 | 🚧 |
+| `GET` | `/events?after=<eventId>&limit=` | 웹훅을 놓쳤을 때 발행 순서대로 따라잡기 | ✅ |
+
+- `after`: 마지막으로 처리한 `eventId` (없으면 처음부터). 다른 서비스의 eventId면 `404 RESOURCE_NOT_FOUND`
+- `limit`: 1~500, 기본 100
+- 응답 `{ data: [{ eventId, eventType, occurredAt, data }], totalCount, nextCursor }` — 항목은 **웹훅 본문과 같은 형태**, `totalCount`는 after 이후 남은 수, `nextCursor`는 다음 조회의 `after` (더 없으면 `null`)
+- **발행 직후(기본 5초) 이벤트는 다음 조회에서 나온다.** 먼저 발행됐지만 늦게 커밋되는 이벤트를 건너뛰지 않기 위해서다. 웹훅과 겹쳐 받을 수 있으므로 `eventId`로 중복을 거른다
+- 모든 이벤트의 `occurredAt`은 hub 발행 시각이다. 토스 취소 시각은 `PAYMENT_CANCELED`의 `data.cancel.canceledAt`
 
 ---
 

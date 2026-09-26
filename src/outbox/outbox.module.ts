@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ServiceModule } from '../service/service.module';
 import { OutboxEvent } from './domain/outbox-event.entity';
 import { WebhookDelivery } from './domain/webhook-delivery.entity';
+import { EventFeedController } from './event-feed.controller';
+import { EventFeedService } from './event-feed.service';
 import { OutboxService } from './outbox.service';
 import { WebhookDispatchScheduler } from './webhook-dispatch.scheduler';
 import { WebhookDispatcher } from './webhook-dispatcher';
@@ -14,8 +16,10 @@ const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
 
 @Module({
   imports: [TypeOrmModule.forFeature([OutboxEvent, WebhookDelivery]), ServiceModule],
+  controllers: [EventFeedController],
   providers: [
     OutboxService,
+    EventFeedService,
     WebhookDispatcher,
     WebhookDispatchScheduler,
     {

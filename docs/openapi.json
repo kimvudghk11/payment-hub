@@ -256,6 +256,56 @@
         ]
       }
     },
+    "/api/v1/events": {
+      "get": {
+        "description": "웹훅을 놓쳤을 때 발행 순서대로 따라잡는다. 마지막으로 처리한 eventId를 after로 준다. 발행 직후(기본 5초) 이벤트는 다음 조회에서 나온다. eventId로 중복 처리를 거른다",
+        "operationId": "EventFeedController_list",
+        "parameters": [
+          {
+            "name": "after",
+            "required": false,
+            "in": "query",
+            "description": "마지막으로 처리한 eventId. 없으면 처음부터",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "최대 개수",
+            "schema": {
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "이벤트 재조회",
+        "tags": [
+          "서비스 API — 이벤트"
+        ]
+      }
+    },
     "/api/v1/payments/confirm": {
       "post": {
         "description": "토스 결제창 인증 후 successUrl로 받은 paymentKey·orderId·amount로 승인한다. 같은 paymentKey 재요청은 기록된 결과를 준다. 402 PAYMENT_REJECTED = 토스 거절(detail.pgCode·pgMessage), 504 PG_TIMEOUT·502 PG_ERROR = 결과 불명(UNKNOWN) — 재시도하지 말고 조회·웹훅으로 확인",
@@ -2499,6 +2549,60 @@
           "nextCursor": {
             "type": "string",
             "description": "다음 페이지 cursor. 마지막이면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "EventResponseDto": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "description": "이벤트 ID (웹훅 X-PaymentHub-Event-Id와 같음)"
+          },
+          "eventType": {
+            "type": "string",
+            "description": "이벤트 유형",
+            "example": "PAYMENT_CONFIRMED"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "발행 시각"
+          },
+          "data": {
+            "type": "object",
+            "description": "웹훅 data와 같은 내용"
+          }
+        },
+        "required": [
+          "eventId",
+          "eventType",
+          "occurredAt",
+          "data"
+        ]
+      },
+      "EventPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "description": "after 이후 남은 이벤트 수"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "다음 조회의 after 값. 더 없으면 null",
             "nullable": true
           }
         },

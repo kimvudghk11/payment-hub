@@ -180,7 +180,8 @@ describe('WebhookDelivery — 전달 시도 상태', () => {
 });
 
 describe('OutboxEvent.forPaymentCancel', () => {
-  it('PAYMENT_CANCELED: 결제 요약(환불 누적 반영) + 이번 취소 건 정보', () => {
+  it('PAYMENT_CANCELED: 결제 요약(환불 누적 반영) + 이번 취소 건 정보. 이벤트 시각은 발행 시각, 토스 취소 시각은 data.cancel에', () => {
+    const publishedAt = new Date('2026-09-28T00:00:01.000Z');
     const canceledPayment = Object.assign(new Payment(), {
       ...payment,
       status: PaymentStatus.PARTIAL_CANCELED,
@@ -193,9 +194,13 @@ describe('OutboxEvent.forPaymentCancel', () => {
       canceledAt: now,
     });
 
-    const event = OutboxEvent.forPaymentCancel(canceledPayment, order, cancel);
+    const event = OutboxEvent.forPaymentCancel(canceledPayment, order, cancel, publishedAt);
 
-    expect(event).toMatchObject({ eventType: OutboxEventType.PAYMENT_CANCELED, aggregateId: 'pay-1', occurredAt: now });
+    expect(event).toMatchObject({
+      eventType: OutboxEventType.PAYMENT_CANCELED,
+      aggregateId: 'pay-1',
+      occurredAt: publishedAt,
+    });
     expect(event.payload).toMatchObject({
       paymentId: 'pay-1',
       status: PaymentStatus.PARTIAL_CANCELED,

@@ -17,7 +17,7 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
   const actor = { actorId: 'admin-7', actorName: '홍길동', requestId: 'req-example' };
 
   beforeAll(async () => {
-    ctx = await createIntegrationApp({ TOSS_API_BASE_URL: await toss.start() });
+    ctx = await createIntegrationApp({ TOSS_API_BASE_URL: await toss.start(), EVENT_FEED_LAG_MS: '0' });
     await ctx.app.listen(0, '127.0.0.1');
     const server = ctx.app.getHttpServer() as unknown as { address(): AddressInfo };
     baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -190,6 +190,25 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(noReason).toMatchObject({ status: 400, code: 'ADMIN_REASON_REQUIRED' });
     expect(refunded).toMatchObject({ cancel: { requestedBy: 'ADMIN' }, payment: { status: 'CANCELED' } });
     expect((await admin.getPayment(actor, payment.paymentId)).cancels.map((c) => c.requestedBy)).toEqual(['ADMIN']);
+  });
+
+  it('놓친 웹훅 따라잡기: 마지막으로 처리한 eventId부터 이벤트를 끝까지 읽는다', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    for (const id of ['ex-feed-1', 'ex-feed-2']) {
+      const { order } = await client.createOrder(orderInput(id));
+      await client.confirmPayment({ orderId: order.orderId, paymentKey: `tgen_${id}`, amount: 10000 });
+    }
+
+    const handled: string[] = [];
+    const last = await client.catchUpEvents(undefined, (event) => {
+      handled.push(event.eventType);
+      return Promise.resolve();
+    });
+
+    expect(handled).toEqual(['PAYMENT_CONFIRMED', 'PAYMENT_CONFIRMED']);
+    // 다음 실행: 저장해 둔 마지막 eventId부터 → 새 이벤트 없음
+    expect(await client.catchUpEvents(last, () => Promise.reject(new Error('새 이벤트 없음')))).toBe(last);
   });
 
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {

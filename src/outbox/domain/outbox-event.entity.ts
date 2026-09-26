@@ -82,10 +82,13 @@ export class OutboxEvent {
     return event;
   }
 
-  /** 환불 확정 이벤트. 결제 요약(환불 누적 반영) + 이번 취소 건. 사건 시각은 토스 취소 시각 */
-  static forPaymentCancel(payment: Payment, order: Order, cancel: PaymentCancel): OutboxEvent {
-    const canceledAt = cancel.canceledAt ?? new Date();
-    const event = OutboxEvent.forPayment(OutboxEventType.PAYMENT_CANCELED, payment, order, canceledAt);
+  /**
+   * 환불 확정 이벤트. 결제 요약(환불 누적 반영) + 이번 취소 건.
+   * occurredAt은 다른 이벤트처럼 발행 시각 (이벤트 재조회 순서 = 발행 순서), 토스 취소 시각은 cancel.canceledAt
+   */
+  static forPaymentCancel(payment: Payment, order: Order, cancel: PaymentCancel, occurredAt: Date): OutboxEvent {
+    const canceledAt = cancel.canceledAt ?? occurredAt;
+    const event = OutboxEvent.forPayment(OutboxEventType.PAYMENT_CANCELED, payment, order, occurredAt);
     event.payload = {
       ...event.payload,
       cancel: {

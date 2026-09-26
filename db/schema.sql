@@ -424,6 +424,8 @@ CREATE TABLE tb_outbox_event (
   ))
 );
 CREATE INDEX ix_tb_outbox_event_aggregate ON tb_outbox_event (aggregate_type, aggregate_id);
+-- 이벤트 재조회 (GET /events?after=): 서비스별 발행 순서
+CREATE INDEX ix_tb_outbox_event_service_feed ON tb_outbox_event (service_id, occurred_at, id);
 
 -- =====================================================================
 -- 7. 관리자 감사 로그 (db/schema.sql 끝에 추가)
