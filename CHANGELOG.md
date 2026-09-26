@@ -6,6 +6,11 @@
 
 ### 2026-09-27
 
+#### fix(order): 주문 만료 배치도 건 단위로 실패 격리
+- **무엇을**: `OrderExpirer.expireDue`가 주문마다 예외를 잡아 로그를 남기고 다음 주문을 계속 처리. 실패한 주문은 트랜잭션이 롤백돼 PENDING으로 남고 다음 배치에서 다시 시도됨. 결과에 `failed` 추가
+- **왜**: 직전 커밋에서 정한 "배치는 건 단위로 실패를 격리" 규칙(CLAUDE.md 8장)을 만료 배치에도 적용 — 이벤트 발행 실패를 일부러 일으켜 나머지 주문이 만료되고 실패 주문이 다음 배치에서 만료되는 것을 테스트
+- **변경 파일**: `src/order/order-expirer.ts`, `test/order/order-expiry.int-spec.ts`
+
 #### fix(batch): 대사·웹훅 발송 배치에서 한 건의 실패가 배치 전체를 멈추던 문제 수정
 - **무엇을**:
   - `PaymentReconciler.reconcileDue`·`reconcileCancelsDue`: 건마다 예외를 잡아 에러 로그 → 그 건의 `updated_at`만 갱신(순서의 뒤로) → 다음 건 계속. 결과에 `failed` 수 추가

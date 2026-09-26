@@ -1,3 +1,4 @@
+import { OutboxService } from '../../src/outbox/outbox.service';
 import { OrderExpirer } from '../../src/order/order-expirer';
 import { PayableService, onboardPayableService } from '../support/admin-fixtures';
 import { FakeToss, approvedCardPayment } from '../support/fake-toss';
@@ -128,6 +129,27 @@ describe('주문 만료 배치', () => {
 
     expect(await statusOf(fresh)).toBe('PENDING');
     expect(await eventsOf(due)).toHaveLength(1);
+  });
+
+  it('한 주문의 만료 처리가 실패해도 나머지는 만료하고, 실패한 주문은 롤백되어 다음 배치에서 다시 시도된다', async () => {
+    const failing = await createOrder();
+    const ok = await createOrder();
+    await pastDue(failing);
+    await pastDue(ok);
+    await ctx.dataSource.query(`UPDATE tb_order SET expires_at = now() - interval '2 minute' WHERE id = $1`, [failing]);
+    const outbox = ctx.app.get(OutboxService);
+    const spy = jest.spyOn(outbox, 'publishOrderEvent').mockRejectedValueOnce(new Error('outbox down'));
+    try {
+      const result = await expirer.expireDue();
+      expect(result.failed).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(await statusOf(failing)).toBe('PENDING');
+    expect(await statusOf(ok)).toBe('EXPIRED');
+    await expirer.expireDue();
+    expect(await statusOf(failing)).toBe('EXPIRED');
   });
 
   it('만료 후 주문 조회에 EXPIRED가 보이고 승인은 409 ORDER_EXPIRED', async () => {
