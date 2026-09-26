@@ -4,6 +4,7 @@ import { BaseEntity } from '../../common/domain/base.entity';
 import { bigintAmountTransformer } from '../../common/database/bigint-amount.transformer';
 import { BusinessException } from '../../common/errors/business.exception';
 import { ErrorCode } from '../../common/errors/error-code';
+import { PaymentStatus } from '../../payment/constants/payment.constants';
 import { OrderStatus } from '../constants/order.constants';
 import { OrderItem, OrderItemInput } from './order-item.entity';
 
@@ -138,6 +139,20 @@ export class Order extends BaseEntity {
     }
     this.status = OrderStatus.PAID;
     this.paidAt = paidAt;
+  }
+
+  /**
+   * 환불 확정 반영: 결제가 전액 취소면 CANCELED, 아니면 PARTIAL_CANCELED. 취소 항목의 수량을 항목에 누적한다.
+   * items가 로드되어 있어야 한다.
+   */
+  applyRefund(payment: { status: PaymentStatus }, canceledItems: { orderItemId: string; quantity: number }[]): void {
+    if (!PAID_STATUSES.has(this.status)) throw new Error(`주문 ${this.orderId}: ${this.status} 상태는 환불 반영 불가`);
+    for (const canceled of canceledItems) {
+      const item = this.items.find((candidate) => candidate.orderItemId === canceled.orderItemId);
+      if (!item) throw new Error(`주문 ${this.orderId}: 항목 ${canceled.orderItemId} 없음`);
+      item.addCanceledQuantity(canceled.quantity);
+    }
+    this.status = payment.status === PaymentStatus.CANCELED ? OrderStatus.CANCELED : OrderStatus.PARTIAL_CANCELED;
   }
 
   private comparable() {

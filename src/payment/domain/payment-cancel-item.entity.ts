@@ -21,4 +21,11 @@ export class PaymentCancelItem {
   @ManyToOne('PaymentCancel', (cancel: PaymentCancel) => cancel.items)
   @JoinColumn({ name: 'cancel_id', referencedColumnName: 'paymentCancelId' })
   cancel: PaymentCancel;
+
+  static create(
+    paymentCancelId: string,
+    item: { orderItemId: string; quantity: number; amount: number },
+  ): PaymentCancelItem {
+    return Object.assign(new PaymentCancelItem(), { paymentCancelId, ...item });
+  }
 }

@@ -2,10 +2,20 @@ import { createHash } from 'crypto';
 import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { BaseEntity } from '../../common/domain/base.entity';
 import { bigintAmountTransformer } from '../../common/database/bigint-amount.transformer';
+import { BusinessException } from '../../common/errors/business.exception';
+import { ErrorCode } from '../../common/errors/error-code';
+import type { OrderItem } from '../../order/domain/order-item.entity';
 import type { Order } from '../../order/domain/order.entity';
 import { PgProvider } from '../../pg/constants/pg.constants';
 import { TossPayment } from '../../pg/toss-payment.types';
-import { CardType, PaymentMethodType, PaymentStatus, PaymentType } from '../constants/payment.constants';
+import {
+  CancelRequestedBy,
+  CardType,
+  PaymentCancelStatus,
+  PaymentMethodType,
+  PaymentStatus,
+  PaymentType,
+} from '../constants/payment.constants';
 import { PaymentCancel } from './payment-cancel.entity';
 
 /** 결제 시도 1건. 토스 호출 전에 IN_PROGRESS로 먼저 저장한다. 주문당 살아있는 결제는 1건. */
@@ -186,6 +196,49 @@ export class Payment extends BaseEntity {
     if (response) this.providerResponse = response;
   }
 
+  /**
+   * 환불 요청. 토스 호출 전에 기록할 REQUESTED 취소를 만들고 cancels에 붙인다 (결제 금액·상태는 확정 때 바뀜).
+   * 상한 = 환불 가능 금액 − 처리 중(REQUESTED·UNKNOWN) 취소 합계. 결제 행 락 + cancels 로드 상태에서 호출해야
+   * 동시에 들어온 부분 환불 합계가 결제 금액을 넘지 않는다. 금액 계산(일할 등)은 서비스 책임이고 hub는 상한만 본다.
+   * @param orderItems 이 결제 주문의 항목 (항목별 취소 수량 검증용)
+   */
+  requestCancel(request: CancelRequest, orderItems: OrderItem[]): PaymentCancel {
+    if (!CANCELABLE_STATUSES.has(this.status)) throw new BusinessException(ErrorCode.PAYMENT_NOT_CANCELABLE);
+    const pending = this.cancels.filter((cancel) => cancel.isPending);
+    const available = this.refundableAmount - pending.reduce((sum, cancel) => sum + cancel.amount, 0);
+    if (request.amount > available) {
+      throw new BusinessException(ErrorCode.CANCEL_AMOUNT_EXCEEDED, { refundableAmount: available });
+    }
+    assertCancelItems(request, orderItems, pending);
+
+    const cancel = PaymentCancel.request({
+      paymentId: this.paymentId,
+      serviceId: this.serviceId,
+      idempotencyKey: request.idempotencyKey,
+      amount: request.amount,
+      reasonCode: request.reasonCode,
+      reasonDetail: request.reasonDetail ?? null,
+      requestedBy: request.requestedBy,
+      items: request.items ?? [],
+    });
+    this.cancels.push(cancel);
+    return cancel;
+  }
+
+  /** 토스 취소가 확정(DONE)된 취소를 반영: 환불 누적, 전액이면 CANCELED 아니면 PARTIAL_CANCELED */
+  applyCanceled(cancel: PaymentCancel): void {
+    if (cancel.status !== PaymentCancelStatus.DONE) {
+      throw new Error(`취소 ${cancel.paymentCancelId}: ${cancel.status} 상태는 결제에 반영할 수 없음`);
+    }
+    if (!CANCELABLE_STATUSES.has(this.status) || cancel.amount > this.refundableAmount) {
+      throw new Error(
+        `결제 ${this.paymentId}: ${this.status}·환불 가능 ${this.refundableAmount}에 ${cancel.amount} 반영 불가`,
+      );
+    }
+    this.refundedAmount += cancel.amount;
+    this.status = this.refundedAmount === this.amount ? PaymentStatus.CANCELED : PaymentStatus.PARTIAL_CANCELED;
+  }
+
   /** 승인된(DONE·PARTIAL_CANCELED) 결제만 환불 가능. 그 외 상태는 0 */
   get refundableAmount(): number {
     return CANCELABLE_STATUSES.has(this.status) ? this.amount - this.refundedAmount : 0;
@@ -197,6 +250,54 @@ export class Payment extends BaseEntity {
     }
   }
 }
+
+export interface CancelRequest {
+  /** 서비스가 정한 값. (서비스, idempotencyKey)로 재요청을 식별 */
+  idempotencyKey: string;
+  amount: number;
+  reasonCode: string;
+  reasonDetail?: string | null;
+  requestedBy: CancelRequestedBy;
+  /** 항목별 취소 기록 (선택). 주면 금액 합계 = amount */
+  items?: { orderItemId: string; quantity: number; amount: number }[];
+}
+
+/** 항목 검증 실패는 필드별 메시지로 (INVALID_REQUEST detail.errors 형식) */
+const assertCancelItems = (request: CancelRequest, orderItems: OrderItem[], pending: PaymentCancel[]): void => {
+  const items = request.items ?? [];
+  if (items.length === 0) return;
+
+  const errors: { field: string; message: string }[] = [];
+  const seen = new Set<string>();
+  items.forEach((item, index) => {
+    const orderItem = orderItems.find((candidate) => candidate.orderItemId === item.orderItemId);
+    if (!orderItem) {
+      errors.push({ field: `items.${index}.orderItemId`, message: '이 결제의 주문 항목이 아닙니다.' });
+      return;
+    }
+    if (seen.has(item.orderItemId)) {
+      errors.push({ field: `items.${index}.orderItemId`, message: '같은 항목을 두 번 지정했습니다.' });
+      return;
+    }
+    seen.add(item.orderItemId);
+    const pendingQuantity = pending
+      .flatMap((cancel) => cancel.items)
+      .filter((pendingItem) => pendingItem.orderItemId === item.orderItemId)
+      .reduce((sum, pendingItem) => sum + pendingItem.quantity, 0);
+    const cancelable = orderItem.quantity - orderItem.canceledQuantity - pendingQuantity;
+    if (item.quantity > cancelable) {
+      errors.push({ field: `items.${index}.quantity`, message: `취소 가능 수량(${cancelable}개)을 넘었습니다.` });
+    }
+  });
+  const itemsAmount = items.reduce((sum, item) => sum + item.amount, 0);
+  if (errors.length === 0 && itemsAmount !== request.amount) {
+    errors.push({
+      field: 'items',
+      message: `항목 금액 합계(${itemsAmount})가 환불 금액(${request.amount})과 다릅니다.`,
+    });
+  }
+  if (errors.length > 0) throw new BusinessException(ErrorCode.INVALID_REQUEST, { errors });
+};
 
 /** 토스 Idempotency-Key·tb_payment.idempotency_key. paymentKey(최대 200자)를 해시해 컬럼 한도(100) 안에 맞춘다 */
 const confirmIdempotencyKey = (paymentKey: string): string =>

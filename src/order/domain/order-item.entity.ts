@@ -67,6 +67,14 @@ export class OrderItem extends BaseEntity {
     return orderItem;
   }
 
+  /** 환불 확정 시 취소 수량 누적 (취소 항목 기록과 같은 트랜잭션) */
+  addCanceledQuantity(quantity: number): void {
+    if (this.canceledQuantity + quantity > this.quantity) {
+      throw new Error(`주문 항목 ${this.orderItemId}: 취소 수량이 수량(${this.quantity})을 넘음`);
+    }
+    this.canceledQuantity += quantity;
+  }
+
   /** 멱등 비교용: 서비스가 보낸 값만 (순번·금액·취소 수량 같은 파생값 제외) */
   toInput(): OrderItemInput {
     return {

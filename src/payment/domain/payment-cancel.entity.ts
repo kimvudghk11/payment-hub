@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { BaseEntity } from '../../common/domain/base.entity';
 import { bigintAmountTransformer } from '../../common/database/bigint-amount.transformer';
@@ -60,4 +61,61 @@ export class PaymentCancel extends BaseEntity {
 
   @OneToMany(() => PaymentCancelItem, (item) => item.cancel)
   items: PaymentCancelItem[];
+
+  /** Payment.requestCancel에서만 만든다 (검증은 결제가 한다). 항목이 같은 ID를 참조하도록 ID를 여기서 정한다 */
+  static request(params: {
+    paymentId: string;
+    serviceId: string;
+    idempotencyKey: string;
+    amount: number;
+    reasonCode: string;
+    reasonDetail: string | null;
+    requestedBy: CancelRequestedBy;
+    items: { orderItemId: string; quantity: number; amount: number }[];
+  }): PaymentCancel {
+    const cancel = new PaymentCancel();
+    cancel.paymentCancelId = randomUUID();
+    cancel.paymentId = params.paymentId;
+    cancel.serviceId = params.serviceId;
+    cancel.idempotencyKey = params.idempotencyKey;
+    cancel.amount = params.amount;
+    cancel.reasonCode = params.reasonCode;
+    cancel.reasonDetail = params.reasonDetail;
+    cancel.requestedBy = params.requestedBy;
+    cancel.status = PaymentCancelStatus.REQUESTED;
+    cancel.providerTransactionKey = null;
+    cancel.failureCode = null;
+    cancel.failureMessage = null;
+    cancel.canceledAt = null;
+    cancel.items = params.items.map((item) => PaymentCancelItem.create(cancel.paymentCancelId, item));
+    return cancel;
+  }
+
+  /** 결과를 아직 모르는 취소 — 환불 가능 금액에서 미리 빼 둔다 */
+  get isPending(): boolean {
+    return this.status === PaymentCancelStatus.REQUESTED || this.status === PaymentCancelStatus.UNKNOWN;
+  }
+
+  markDone(result: { transactionKey: string | null; canceledAt: Date }): void {
+    this.assertPending();
+    this.status = PaymentCancelStatus.DONE;
+    this.providerTransactionKey = result.transactionKey;
+    this.canceledAt = result.canceledAt;
+  }
+
+  markFailed(failure: { code: string; message: string }): void {
+    this.assertPending();
+    this.status = PaymentCancelStatus.FAILED;
+    this.failureCode = failure.code;
+    this.failureMessage = failure.message;
+  }
+
+  markUnknown(): void {
+    this.assertPending();
+    this.status = PaymentCancelStatus.UNKNOWN;
+  }
+
+  private assertPending(): void {
+    if (!this.isPending) throw new Error(`취소 ${this.paymentCancelId}: ${this.status} 상태는 결과를 바꿀 수 없음`);
+  }
 }

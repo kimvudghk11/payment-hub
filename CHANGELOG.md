@@ -6,6 +6,20 @@
 
 ### 2026-09-27
 
+#### feat(payment): 환불 요청 검증·취소 확정 도메인 추가
+- **무엇을**:
+  - `Payment.requestCancel(request, orderItems)`: 취소 가능 상태(DONE·PARTIAL_CANCELED) 확인, 상한 = 환불 가능 금액 − **처리 중(REQUESTED·UNKNOWN) 취소 합계** → 넘으면 `CANCEL_AMOUNT_EXCEEDED`(`detail.refundableAmount`). 항목 검증(이 주문 항목인지, 중복, 취소 가능 수량 = 수량 − 취소된 − 처리 중, 항목 금액 합계 = 환불 금액)은 `INVALID_REQUEST` + 필드별 메시지. REQUESTED `PaymentCancel`(+항목)을 만들어 `cancels`에 붙임
+  - `PaymentCancel.request/markDone/markFailed/markUnknown/isPending`, `PaymentCancelItem.create`
+  - `Payment.applyCanceled(cancel)`: 환불 누적, 전액이면 `CANCELED` 아니면 `PARTIAL_CANCELED`
+  - `Order.applyRefund(payment, items)`, `OrderItem.addCanceledQuantity(q)`: 주문 상태·항목 취소 수량 누적
+- **왜**:
+  - 환불 금액 검증은 DB가 강제하지 못하는 규칙 (CLAUDE.md 4장) → 엔티티가 책임
+  - 토스 호출 중인 취소를 빼지 않으면, 동시에 들어온 부분 환불 둘이 각각 통과해 합계가 결제 금액을 넘을 수 있음 (확정 전이라 `refunded_amount`에 아직 없음). 이 규칙을 빼면 테스트가 실패하는 것을 확인
+  - 실패한 취소는 금액을 잡아두지 않음 → 다시 요청 가능
+  - 항목 금액 합계를 환불 금액과 맞추게 해 부분 환불 추적(`canceled_quantity`)과 금액이 어긋나지 않게 함. 금액 계산 자체(일할 등)는 여전히 서비스 책임
+- **변경 파일**: `src/payment/domain/{payment,payment-cancel,payment-cancel-item}.entity.ts`, `src/order/domain/{order,order-item}.entity.ts`, `test/payment/payment-cancel.entity.spec.ts`
+- **남은 작업 / 주의**: 원장 반대 분개·이벤트, 토스 취소 호출, API는 다음 커밋
+
 #### feat(payment): 대사 배치 추가 — 결과 불명·멈춘 결제를 토스 조회로 확정
 - **무엇을**:
   - `PaymentReconciler.reconcileDue()`: `IN_PROGRESS`·`UNKNOWN` 중 2분 이상 지난 결제(오래된 순 20건)를 토스 `getPayment`로 조회(트랜잭션 밖) → 결제 행 락 + 상태 재확인 후 반영. 토스 `DONE` → 주문 PAID·원장·`PAYMENT_CONFIRMED`, `ABORTED` → `FAILED`, `EXPIRED` → `EXPIRED`(둘 다 `PAYMENT_FAILED`)
