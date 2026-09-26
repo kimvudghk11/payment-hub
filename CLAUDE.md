@@ -173,7 +173,7 @@ payment-hub는 호출 주체가 둘이고, API 표면도 둘로 완전히 나뉜
 
 | 기능 | API | 비고 |
 |------|-----|------|
-| 서비스 등록 | `POST /admin/services` | code, name, webhook_url |
+| 서비스 등록 | `POST /admin/services` | code, name, webhook_url. webhook_url은 LIVE 배포면 https만, TEST 배포는 로컬 개발용 http 허용 |
 | 서비스 수정 | `PATCH /admin/services/:id` | 이름, webhook_url |
 | 서비스 정지 / 재개 | `POST /admin/services/:id/suspend`, `/resume` | 정지 시 키가 유효해도 서비스 API 전부 `SERVICE_SUSPENDED` |
 | 서비스 삭제 | `DELETE /admin/services/:id` | soft delete(`deleted_at`). 결제 이력은 보존 |
@@ -245,6 +245,17 @@ src
     ├── ops/                운영 큐: UNKNOWN 결제 대사, DEAD 웹훅 재전송, 실패한 토스 웹훅
     ├── report/             원장 기반 매출·환불 집계
     └── audit/              감사 로그 기록·조회
+```
+
+레포 루트:
+
+```
+db/schema.sql          스키마 SSOT
+docs/api.md            API 계약 (엔드포인트·요청·응답·에러, 구현 상태)
+docs/openapi.json      코드에서 생성한 OpenAPI (npm run openapi:export)
+docs/guides/           연동 가이드 — service-integration.md, admin-integration.md
+examples/              연동 예제 코드 (서비스·admin 클라이언트, 웹훅 서명 검증). test/docs에서 검증
+scripts/               개발 도구 (openapi 생성, admin 키 생성, 로컬 온보딩). 빌드 대상 아님
 ```
 
 도메인 모듈 내부 구조:
@@ -416,6 +427,10 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 - 원장 테이블에 UPDATE/DELETE 코드를 작성하지 않는다.
 - 로그에 API 키, 시크릿 키, 빌링키, 카드번호 원문을 남기지 않는다.
 - 설계 판단이 이 문서의 원칙과 충돌하면 구현 전에 사용자에게 먼저 묻는다.
+- **연동 문서는 코드와 같은 커밋에서 맞춘다.** 이 레포와 문서만으로 서비스·admin 연동이 가능해야 한다.
+  - API를 추가·변경하면: `docs/api.md`(계약·✅/🚧) → `npm run openapi:export`(`docs/openapi.json`, 불일치 시 `test/docs/openapi.spec.ts` 실패) → 해당 가이드(`docs/guides/`) → 필요하면 `examples/` 클라이언트
+  - `examples/`는 가이드가 그대로 싣는 코드다. 외부 의존성 없이(Node 내장 모듈·fetch) 작성하고, `test/docs/`에서 실제 hub에 붙여 검증한다
+  - 웹훅 서명 규격(`src/outbox/webhook-signature.ts`)을 바꾸면 `examples/webhook-signature-verify.ts`와 가이드를 함께 바꾼다
 
 ---
 

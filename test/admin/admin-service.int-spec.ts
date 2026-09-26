@@ -118,16 +118,27 @@ describe('관리자 API — 서비스', () => {
         .http()
         .post('/api/v1/admin/services')
         .set(adminHeaders)
-        .send({ code: 'svc-a', name: 'A', webhookUrl: 'http://insecure.example.com' });
+        .send({ code: 'svc-a', name: 'A', webhookUrl: 'ftp://files.example.com' });
 
       expect(res.status).toBe(400);
       expect(errorOf(res).code).toBe('INVALID_REQUEST');
       expect(errorOf(res).detail?.errors).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ field: 'code' }),
-          { field: 'webhookUrl', message: 'webhookUrl은 https URL이어야 합니다.' },
+          { field: 'webhookUrl', message: 'webhookUrl은 http(s) URL이어야 합니다.' },
         ]),
       );
+    });
+
+    it('TEST 배포는 로컬 개발용 http://localhost 웹훅 URL을 허용한다', async () => {
+      const res = await ctx
+        .http()
+        .post('/api/v1/admin/services')
+        .set(adminHeaders)
+        .send({ code: uniqueServiceCode(), name: '로컬', webhookUrl: 'http://localhost:4000/webhooks/payment-hub' });
+
+      expect(res.status).toBe(201);
+      expect(dataOf<ServiceData>(res).webhookUrl).toBe('http://localhost:4000/webhooks/payment-hub');
     });
 
     it('admin 키가 없으면 401', async () => {

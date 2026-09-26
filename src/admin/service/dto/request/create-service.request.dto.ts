@@ -3,7 +3,8 @@ import { IsNotEmpty, IsOptional, IsString, IsUrl, Matches, MaxLength } from 'cla
 import { ValidationMessage } from '../../../../common/utils/validation-message.util';
 
 export const SERVICE_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,19}$/;
-export const HTTPS_URL_OPTIONS = { protocols: ['https'], require_protocol: true };
+/** 형식만 검증. LIVE의 https 강제는 webhook-url.policy.ts (배포 환경을 알아야 함) */
+export const WEBHOOK_URL_OPTIONS = { protocols: ['http', 'https'], require_protocol: true, require_tld: false };
 
 export class CreateServiceRequestDto {
   @ApiProperty({ description: '서비스 코드. 영문 대문자로 시작, 대문자·숫자·_ 2~20자, 전역 유일', example: 'SVC_A' })
@@ -19,10 +20,11 @@ export class CreateServiceRequestDto {
   name: string;
 
   @ApiPropertyOptional({
-    description: '결제 이벤트를 받을 https URL. 없으면 웹훅을 보내지 않음',
+    description:
+      '결제 이벤트를 받을 URL. LIVE 배포는 https만, TEST 배포는 http(localhost)도 허용. 없으면 웹훅을 보내지 않음',
     example: 'https://svc-a.example.com/webhooks/payment-hub',
   })
   @IsOptional()
-  @IsUrl(HTTPS_URL_OPTIONS, { message: ValidationMessage.httpsUrl('webhookUrl') })
+  @IsUrl(WEBHOOK_URL_OPTIONS, { message: ValidationMessage.httpUrl('webhookUrl') })
   webhookUrl?: string;
 }

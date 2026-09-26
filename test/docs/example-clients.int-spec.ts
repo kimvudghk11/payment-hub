@@ -1,0 +1,117 @@
+import { AddressInfo } from 'net';
+import { PaymentHubAdminClient } from '../../examples/admin-client';
+import { PaymentHubError } from '../../examples/http';
+import { PaymentHubServiceClient } from '../../examples/service-client';
+import { ADMIN_KEY, IntegrationApp, createIntegrationApp, uniqueServiceCode } from '../support/integration-app';
+
+/**
+ * 연동 가이드가 싣는 예제 클라이언트(examples/)를 실제 HTTP로 띄운 hub에 붙여 검증한다.
+ * 가이드의 "온보딩 → 연결 확인 → 주문 등록" 흐름을 그대로 따라간다.
+ */
+describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', () => {
+  let ctx: IntegrationApp;
+  let admin: PaymentHubAdminClient;
+  let baseUrl: string;
+  const actor = { actorId: 'admin-7', actorName: '홍길동', requestId: 'req-example' };
+
+  beforeAll(async () => {
+    ctx = await createIntegrationApp();
+    await ctx.app.listen(0, '127.0.0.1');
+    const server = ctx.app.getHttpServer() as unknown as { address(): AddressInfo };
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+    admin = new PaymentHubAdminClient({ baseUrl, adminKey: ADMIN_KEY });
+  });
+
+  afterAll(async () => {
+    await ctx.app.close();
+  });
+
+  /** admin 가이드의 온보딩 절차 */
+  const onboard = async () => {
+    const service = await admin.createService(actor, { code: uniqueServiceCode(), name: '예제 서비스' });
+    await admin.createProductType(actor, service.serviceId, { code: 'PLAN', name: '구독 요금제' });
+    await admin.registerPgCredential(actor, service.serviceId, {
+      environment: 'TEST',
+      clientKey: 'test_ck_example',
+      secretKey: 'test_sk_example',
+    });
+    const { apiKey } = await admin.issueApiKey(actor, service.serviceId, { label: 'example' });
+    return { service, apiKey };
+  };
+
+  const orderInput = (externalOrderId: string) => ({
+    externalOrderId,
+    externalUserId: 'user-1',
+    orderName: '구독 1개월',
+    items: [{ productType: 'PLAN', externalProductId: 'pro', productName: '프로', unitPrice: 10000, quantity: 1 }],
+    totalAmount: 10000,
+  });
+
+  it('admin 클라이언트로 온보딩하고, 받은 API 키로 서비스 클라이언트가 연결된다', async () => {
+    const { service, apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+
+    expect(service.webhookSecret).toMatch(/^whsec_/);
+    expect(await client.me()).toMatchObject({ serviceId: service.serviceId, status: 'ACTIVE' });
+    expect(await client.getPgClientConfig()).toEqual({
+      provider: 'TOSS',
+      environment: 'TEST',
+      clientKey: 'test_ck_example',
+    });
+  });
+
+  it('주문 등록 → 재시도 → 조회 흐름', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+
+    const first = await client.createOrder(orderInput('ex-order-1'));
+    const retry = await client.createOrder(orderInput('ex-order-1'));
+    const fetched = await client.getOrder(first.order.orderId);
+    const page = await client.listOrders({ externalOrderId: 'ex-order-1' });
+
+    expect(first.created).toBe(true);
+    expect(retry).toMatchObject({ created: false, order: { orderId: first.order.orderId } });
+    expect(fetched.items).toHaveLength(1);
+    expect(page.data.map((o) => o.orderId)).toEqual([first.order.orderId]);
+  });
+
+  it('실패는 PaymentHubError(status, code, detail)로 받아 code로 분기할 수 있다', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+
+    const error = await client.createOrder({ ...orderInput('ex-bad'), totalAmount: 9999 }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(PaymentHubError);
+    expect(error).toMatchObject({
+      status: 400,
+      code: 'ORDER_AMOUNT_INVALID',
+      detail: { expectedTotalAmount: 10000, totalAmount: 9999 },
+    });
+  });
+
+  it('admin이 서비스를 정지하면 서비스 클라이언트는 SERVICE_SUSPENDED를 받는다', async () => {
+    const { service, apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+
+    await admin.suspendService(actor, service.serviceId, '예제: 정지 확인');
+    const error = await client.me().catch((e: unknown) => e);
+    await admin.resumeService(actor, service.serviceId);
+
+    expect(error).toMatchObject({ status: 403, code: 'SERVICE_SUSPENDED' });
+    expect((await client.me()).status).toBe('ACTIVE');
+  });
+
+  it('키 교체 절차: 새 키 발급 → 새 키로 전환 → 구 키 폐기', async () => {
+    const { service, apiKey: oldKey } = await onboard();
+
+    const { apiKey: newKey } = await admin.issueApiKey(actor, service.serviceId, { label: 'rotated' });
+    await new PaymentHubServiceClient({ baseUrl, apiKey: newKey }).me();
+    const keys = await admin.listApiKeys(actor, service.serviceId);
+    const old = keys.find((k) => k.label === 'example');
+    await admin.revokeApiKey(actor, old!.apiKeyId);
+
+    const error = await new PaymentHubServiceClient({ baseUrl, apiKey: oldKey }).me().catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 401, code: 'API_KEY_REVOKED' });
+    expect((await new PaymentHubServiceClient({ baseUrl, apiKey: newKey }).me()).serviceId).toBe(service.serviceId);
+  });
+});

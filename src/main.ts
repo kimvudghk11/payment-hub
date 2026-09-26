@@ -1,10 +1,11 @@
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import { initializeTransactionalContext } from 'typeorm-transactional';
 import { AppModule } from './app.module';
 import { setupApp } from './app.setup';
+import { buildOpenApiDocument } from './openapi';
 
 async function bootstrap() {
   // AppModule 생성 전에 호출해야 @Transactional()이 동작한다
@@ -18,17 +19,7 @@ async function bootstrap() {
   app.enableShutdownHooks();
 
   if (config.get<string>('NODE_ENV') !== 'production') {
-    const document = SwaggerModule.createDocument(
-      app,
-      new DocumentBuilder()
-        .setTitle('payment-hub')
-        .setDescription('여러 서비스의 결제를 하나로 모으는 결제 허브 API')
-        .setVersion('1.0')
-        .addBearerAuth({ type: 'http', scheme: 'bearer' }, 'service-api-key')
-        .addBearerAuth({ type: 'http', scheme: 'bearer' }, 'admin-api-key')
-        .build(),
-    );
-    SwaggerModule.setup('docs', app, document);
+    SwaggerModule.setup('docs', app, buildOpenApiDocument(app));
   }
 
   const port = Number(config.get<string>('PORT', '3000'));

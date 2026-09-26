@@ -1,0 +1,2293 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/me": {
+      "get": {
+        "description": "API 키가 어느 서비스로 인증되는지 확인한다. 키 교체 후 배포 검증에 사용",
+        "operationId": "ServiceController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceIdentityResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "연결 확인",
+        "tags": [
+          "서비스 API — 연결·PG 설정"
+        ]
+      }
+    },
+    "/api/v1/pg/client-config": {
+      "get": {
+        "description": "서비스 프론트가 토스 결제창을 띄울 때 쓰는 clientKey. 이 hub 배포 환경(TEST/LIVE)의 활성 키",
+        "operationId": "ServiceController_pgClientConfig",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PgClientConfigResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "PG 결제창 설정",
+        "tags": [
+          "서비스 API — 연결·PG 설정"
+        ]
+      }
+    },
+    "/api/v1/orders": {
+      "post": {
+        "description": "결제 전에 서비스 서버가 주문을 등록해 금액을 고정한다. 같은 externalOrderId·같은 내용이면 기존 주문을 200으로, 내용이 다르면 409",
+        "operationId": "OrderController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "같은 요청 재시도 — 기존 주문",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponseDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "새로 등록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "주문 등록",
+        "tags": [
+          "서비스 API — 주문"
+        ]
+      },
+      "get": {
+        "description": "자기 서비스 주문만. externalOrderId·externalUserId·externalSubscriptionId·상태·기간 필터, 최신순 cursor 페이징",
+        "operationId": "OrderController_list",
+        "parameters": [
+          {
+            "name": "externalOrderId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 쪽 주문번호",
+            "schema": {
+              "example": "svc-a-order-20260927-0001",
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalUserId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 쪽 사용자 ID — 사용자별 주문·결제 이력",
+            "schema": {
+              "example": "user-123",
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalSubscriptionId",
+            "required": false,
+            "in": "query",
+            "description": "구독 ID — 정기결제 체인 (일할 환불 계산용)",
+            "schema": {
+              "example": "sub-77",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "주문 상태",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "PAID",
+                "PARTIAL_CANCELED",
+                "CANCELED",
+                "EXPIRED"
+              ]
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "생성 시각 이상 (ISO 8601)",
+            "schema": {
+              "example": "2026-09-01T00:00:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "생성 시각 미만 (ISO 8601)",
+            "schema": {
+              "example": "2026-10-01T00:00:00.000Z",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "페이지 크기",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "이전 응답의 nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "주문 목록",
+        "tags": [
+          "서비스 API — 주문"
+        ]
+      }
+    },
+    "/api/v1/orders/{orderId}": {
+      "get": {
+        "description": "항목 포함. 다른 서비스의 주문은 404 ORDER_NOT_FOUND",
+        "operationId": "OrderController_get",
+        "parameters": [
+          {
+            "name": "orderId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "주문 단건",
+        "tags": [
+          "서비스 API — 주문"
+        ]
+      }
+    },
+    "/api/v1/admin/services": {
+      "post": {
+        "description": "웹훅 서명 키를 함께 발급하며 평문은 이 응답에서 1회만 반환",
+        "operationId": "AdminServiceController_create",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedServiceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 등록",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      },
+      "get": {
+        "description": "최신순 cursor 페이징. 삭제된 서비스는 includeDeleted=true일 때만",
+        "operationId": "AdminServiceController_list",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "상태 필터",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "SUSPENDED"
+              ]
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "삭제된 서비스 포함 여부",
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "페이지 크기",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "이전 응답의 nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminServicePageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 목록",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}": {
+      "get": {
+        "operationId": "AdminServiceController_get",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminServiceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 상세",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      },
+      "patch": {
+        "description": "이름·웹훅 URL. 바뀐 값이 없으면 감사 로그를 남기지 않음",
+        "operationId": "AdminServiceController_update",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminServiceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 수정",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      },
+      "delete": {
+        "description": "사유 필수. soft delete — 결제 이력은 보존, 이후 서비스 API는 401",
+        "operationId": "AdminServiceController_delete",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReasonRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminServiceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 삭제",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/suspend": {
+      "post": {
+        "description": "사유 필수. 정지되면 키가 유효해도 서비스 API 전부 403",
+        "operationId": "AdminServiceController_suspend",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReasonRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminServiceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 정지",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/resume": {
+      "post": {
+        "operationId": "AdminServiceController_resume",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReasonRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminServiceResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "서비스 재개",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/webhook-secret/rotate": {
+      "post": {
+        "description": "새 키 평문은 이 응답에서 1회만 반환",
+        "operationId": "AdminServiceController_rotateWebhookSecret",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSecretResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "웹훅 서명 키 교체",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/api-keys": {
+      "post": {
+        "description": "서비스가 hub를 호출할 때 Authorization: Bearer <apiKey>로 쓰는 키. 평문은 이 응답에서 1회만",
+        "operationId": "AdminServiceController_issueApiKey",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueApiKeyRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedApiKeyResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "API 키 발급",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      },
+      "get": {
+        "description": "prefix·hint·만료·마지막 사용 시각만. 평문·해시 미노출",
+        "operationId": "AdminServiceController_listApiKeys",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "API 키 목록",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/api-keys/{apiKeyId}/revoke": {
+      "post": {
+        "description": "이미 폐기된 키면 그대로 200 (멱등). 교체 절차: 새 키 발급 → 서비스 배포 → 구 키 lastUsedAt 확인 → 폐기",
+        "operationId": "AdminApiKeyController_revoke",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "apiKeyId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "API 키 폐기",
+        "tags": [
+          "관리자 API — 서비스"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/pg-credentials": {
+      "post": {
+        "description": "시크릿 키를 암호화 저장. 같은 환경의 기존 활성 키는 같은 트랜잭션에서 비활성",
+        "operationId": "AdminPgCredentialController_register",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterPgCredentialRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PgCredentialResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "PG 자격증명 등록",
+        "tags": [
+          "관리자 API — PG 자격증명"
+        ]
+      },
+      "get": {
+        "description": "최신순. 시크릿 키는 끝 4자리 hint만",
+        "operationId": "AdminPgCredentialController_list",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PgCredentialResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "PG 자격증명 목록",
+        "tags": [
+          "관리자 API — PG 자격증명"
+        ]
+      }
+    },
+    "/api/v1/admin/pg-credentials/{pgCredentialId}/deactivate": {
+      "post": {
+        "description": "사유 필수. 활성 키가 없으면 해당 환경 결제가 PG_CREDENTIAL_NOT_FOUND로 실패",
+        "operationId": "AdminPgCredentialController_deactivate",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pgCredentialId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReasonRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PgCredentialResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "PG 자격증명 비활성",
+        "tags": [
+          "관리자 API — PG 자격증명"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/product-types": {
+      "post": {
+        "description": "주문 항목의 productType 화이트리스트. hub는 개별 상품(이름·가격)을 모른다",
+        "operationId": "AdminProductTypeController_create",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductTypeRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductTypeResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "상품 유형 등록",
+        "tags": [
+          "관리자 API — 상품 유형"
+        ]
+      },
+      "get": {
+        "description": "코드순. isActive로 필터",
+        "operationId": "AdminProductTypeController_list",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "isActive",
+            "required": false,
+            "in": "query",
+            "description": "활성 여부 필터",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProductTypeResponseDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "상품 유형 목록",
+        "tags": [
+          "관리자 API — 상품 유형"
+        ]
+      }
+    },
+    "/api/v1/admin/services/{serviceId}/product-types/{code}": {
+      "patch": {
+        "description": "삭제 대신 isActive=false로 중지 (기존 주문 항목이 참조). 바뀐 값이 없으면 감사 로그 없음",
+        "operationId": "AdminProductTypeController_update",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductTypeRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductTypeResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "상품 유형 수정·중지·재개",
+        "tags": [
+          "관리자 API — 상품 유형"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "payment-hub",
+    "description": "여러 서비스의 결제를 하나로 모으는 결제 허브 API.\n\n- 서비스 API(`/api/v1/*`): `Authorization: Bearer <서비스 API 키>` (service-api-key)\n- 관리자 API(`/api/v1/admin/*`): `Authorization: Bearer <admin 키>` + `X-Admin-Actor-Id` (admin-api-key)\n- 성공 응답은 `{ success: true, message, data }`로 감싸지고, 아래 스키마는 `data` 부분이다.\n- 실패 응답은 `{ success: false, code, message, detail? }`. 에러 코드는 docs/api.md 참고.",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "service-api-key": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "서비스 API 키 (ph_test_… / ph_live_…)"
+      },
+      "admin-api-key": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "admin 레포 서버 전용 키"
+      }
+    },
+    "schemas": {
+      "ServiceIdentityResponseDto": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f3c1e-2d4a-4b8e-9f10-123456789abc"
+          },
+          "code": {
+            "type": "string",
+            "description": "서비스 코드",
+            "example": "SVC_A"
+          },
+          "name": {
+            "type": "string",
+            "description": "서비스 이름",
+            "example": "서비스 A"
+          },
+          "status": {
+            "type": "string",
+            "description": "서비스 상태",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED"
+            ],
+            "example": "ACTIVE"
+          }
+        },
+        "required": [
+          "serviceId",
+          "code",
+          "name",
+          "status"
+        ]
+      },
+      "PgClientConfigResponseDto": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "PG사",
+            "enum": [
+              "TOSS"
+            ],
+            "example": "TOSS"
+          },
+          "environment": {
+            "type": "string",
+            "description": "이 hub 배포의 PG 환경",
+            "enum": [
+              "TEST",
+              "LIVE"
+            ],
+            "example": "LIVE"
+          },
+          "clientKey": {
+            "type": "string",
+            "description": "토스 클라이언트 키 (공개 값)",
+            "example": "live_ck_..."
+          }
+        },
+        "required": [
+          "provider",
+          "environment",
+          "clientKey"
+        ]
+      },
+      "OrderItemRequestDto": {
+        "type": "object",
+        "properties": {
+          "productType": {
+            "type": "string",
+            "description": "상품 유형 코드. 관리자가 등록한 활성 유형만 허용",
+            "example": "PLAN"
+          },
+          "externalProductId": {
+            "type": "string",
+            "description": "서비스 쪽 상품 ID",
+            "example": "pro-monthly"
+          },
+          "productName": {
+            "type": "string",
+            "description": "상품명 (결제 시점 스냅샷)",
+            "example": "프로 요금제 1개월"
+          },
+          "unitPrice": {
+            "type": "number",
+            "description": "단가 (통화 최소 단위, 정수)",
+            "example": 29000
+          },
+          "quantity": {
+            "type": "number",
+            "description": "수량",
+            "example": 1
+          }
+        },
+        "required": [
+          "productType",
+          "externalProductId",
+          "productName",
+          "unitPrice",
+          "quantity"
+        ]
+      },
+      "CreateOrderRequestDto": {
+        "type": "object",
+        "properties": {
+          "externalOrderId": {
+            "type": "string",
+            "description": "서비스 쪽 주문번호. (서비스, externalOrderId)가 주문 등록 멱등키",
+            "example": "svc-a-order-20260927-0001"
+          },
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "externalSubscriptionId": {
+            "type": "string",
+            "description": "구독 ID (정기결제 체인 조회용)",
+            "example": "sub-77"
+          },
+          "orderName": {
+            "type": "string",
+            "description": "토스 결제창에 표시되는 주문명",
+            "example": "프로 요금제 1개월 외 1건"
+          },
+          "currency": {
+            "type": "string",
+            "description": "통화 (ISO 4217)",
+            "example": "KRW",
+            "default": "KRW"
+          },
+          "items": {
+            "description": "주문 항목 (1~100개)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderItemRequestDto"
+            }
+          },
+          "discountType": {
+            "type": "string",
+            "description": "할인 종류 (서비스 정의 값, hub는 저장만)",
+            "example": "COUPON_WELCOME"
+          },
+          "discountAmount": {
+            "type": "number",
+            "description": "할인 금액",
+            "example": 5000,
+            "default": 0
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "실제 결제 금액 = 항목 합계 − 할인. 결제 승인 시 이 금액과 대조",
+            "example": 30000
+          },
+          "expiresInSeconds": {
+            "type": "number",
+            "description": "결제 가능 시간(초). 이후 결제 승인은 ORDER_EXPIRED",
+            "example": 1800,
+            "default": 1800,
+            "minimum": 60,
+            "maximum": 604800
+          },
+          "metadata": {
+            "type": "object",
+            "description": "서비스 맥락 (hub는 해석하지 않음)",
+            "example": {
+              "plan": "pro"
+            }
+          }
+        },
+        "required": [
+          "externalOrderId",
+          "externalUserId",
+          "orderName",
+          "items",
+          "totalAmount"
+        ]
+      },
+      "OrderItemResponseDto": {
+        "type": "object",
+        "properties": {
+          "orderItemId": {
+            "type": "string",
+            "description": "주문 항목 ID (부분 환불 시 지정)",
+            "example": "c1a2..."
+          },
+          "lineNo": {
+            "type": "number",
+            "description": "항목 순번",
+            "example": 1
+          },
+          "productType": {
+            "type": "string",
+            "description": "상품 유형",
+            "example": "PLAN"
+          },
+          "externalProductId": {
+            "type": "string",
+            "description": "서비스 쪽 상품 ID",
+            "example": "pro-monthly"
+          },
+          "productName": {
+            "type": "string",
+            "description": "상품명",
+            "example": "프로 요금제 1개월"
+          },
+          "unitPrice": {
+            "type": "number",
+            "description": "단가",
+            "example": 29000
+          },
+          "quantity": {
+            "type": "number",
+            "description": "수량",
+            "example": 1
+          },
+          "amount": {
+            "type": "number",
+            "description": "금액 = 단가 × 수량",
+            "example": 29000
+          },
+          "canceledQuantity": {
+            "type": "number",
+            "description": "취소된 수량",
+            "example": 0
+          }
+        },
+        "required": [
+          "orderItemId",
+          "lineNo",
+          "productType",
+          "externalProductId",
+          "productName",
+          "unitPrice",
+          "quantity",
+          "amount",
+          "canceledQuantity"
+        ]
+      },
+      "OrderResponseDto": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "주문 ID. 토스 결제창의 orderId로 사용",
+            "example": "3f1a..."
+          },
+          "externalOrderId": {
+            "type": "string",
+            "description": "서비스 쪽 주문번호",
+            "example": "svc-a-order-20260927-0001"
+          },
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "externalSubscriptionId": {
+            "type": "string",
+            "description": "구독 ID",
+            "nullable": true,
+            "example": "sub-77"
+          },
+          "orderName": {
+            "type": "string",
+            "description": "주문명",
+            "example": "프로 요금제 1개월 외 1건"
+          },
+          "currency": {
+            "type": "string",
+            "description": "통화",
+            "example": "KRW"
+          },
+          "originalAmount": {
+            "type": "number",
+            "description": "항목 합계",
+            "example": 35000
+          },
+          "discountType": {
+            "type": "string",
+            "description": "할인 종류",
+            "nullable": true,
+            "example": "COUPON_WELCOME"
+          },
+          "discountAmount": {
+            "type": "number",
+            "description": "할인 금액",
+            "example": 5000
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "결제 금액. 결제 승인 시 이 값과 대조",
+            "example": 30000
+          },
+          "status": {
+            "type": "string",
+            "description": "주문 상태",
+            "enum": [
+              "PENDING",
+              "PAID",
+              "PARTIAL_CANCELED",
+              "CANCELED",
+              "EXPIRED"
+            ],
+            "example": "PENDING"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "결제 가능 기한",
+            "example": "2026-09-27T01:30:00.000Z"
+          },
+          "paidAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "결제 완료 시각",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "description": "서비스 맥락",
+            "nullable": true,
+            "example": {
+              "plan": "pro"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "등록 시각",
+            "example": "2026-09-27T01:00:00.000Z"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderItemResponseDto"
+            }
+          }
+        },
+        "required": [
+          "orderId",
+          "externalOrderId",
+          "externalUserId",
+          "externalSubscriptionId",
+          "orderName",
+          "currency",
+          "originalAmount",
+          "discountType",
+          "discountAmount",
+          "totalAmount",
+          "status",
+          "expiresAt",
+          "paidAt",
+          "metadata",
+          "createdAt",
+          "items"
+        ]
+      },
+      "OrderSummaryResponseDto": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "주문 ID. 토스 결제창의 orderId로 사용",
+            "example": "3f1a..."
+          },
+          "externalOrderId": {
+            "type": "string",
+            "description": "서비스 쪽 주문번호",
+            "example": "svc-a-order-20260927-0001"
+          },
+          "externalUserId": {
+            "type": "string",
+            "description": "서비스 쪽 사용자 ID",
+            "example": "user-123"
+          },
+          "externalSubscriptionId": {
+            "type": "string",
+            "description": "구독 ID",
+            "nullable": true,
+            "example": "sub-77"
+          },
+          "orderName": {
+            "type": "string",
+            "description": "주문명",
+            "example": "프로 요금제 1개월 외 1건"
+          },
+          "currency": {
+            "type": "string",
+            "description": "통화",
+            "example": "KRW"
+          },
+          "originalAmount": {
+            "type": "number",
+            "description": "항목 합계",
+            "example": 35000
+          },
+          "discountType": {
+            "type": "string",
+            "description": "할인 종류",
+            "nullable": true,
+            "example": "COUPON_WELCOME"
+          },
+          "discountAmount": {
+            "type": "number",
+            "description": "할인 금액",
+            "example": 5000
+          },
+          "totalAmount": {
+            "type": "number",
+            "description": "결제 금액. 결제 승인 시 이 값과 대조",
+            "example": 30000
+          },
+          "status": {
+            "type": "string",
+            "description": "주문 상태",
+            "enum": [
+              "PENDING",
+              "PAID",
+              "PARTIAL_CANCELED",
+              "CANCELED",
+              "EXPIRED"
+            ],
+            "example": "PENDING"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "결제 가능 기한",
+            "example": "2026-09-27T01:30:00.000Z"
+          },
+          "paidAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "결제 완료 시각",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object",
+            "description": "서비스 맥락",
+            "nullable": true,
+            "example": {
+              "plan": "pro"
+            }
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "등록 시각",
+            "example": "2026-09-27T01:00:00.000Z"
+          }
+        },
+        "required": [
+          "orderId",
+          "externalOrderId",
+          "externalUserId",
+          "externalSubscriptionId",
+          "orderName",
+          "currency",
+          "originalAmount",
+          "discountType",
+          "discountAmount",
+          "totalAmount",
+          "status",
+          "expiresAt",
+          "paidAt",
+          "metadata",
+          "createdAt"
+        ]
+      },
+      "OrderPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderSummaryResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "description": "필터에 맞는 전체 개수",
+            "example": 3
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "다음 페이지 cursor. 마지막이면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "CreateServiceRequestDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "서비스 코드. 영문 대문자로 시작, 대문자·숫자·_ 2~20자, 전역 유일",
+            "example": "SVC_A"
+          },
+          "name": {
+            "type": "string",
+            "description": "서비스 이름",
+            "example": "서비스 A",
+            "maxLength": 100
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "결제 이벤트를 받을 URL. LIVE 배포는 https만, TEST 배포는 http(localhost)도 허용. 없으면 웹훅을 보내지 않음",
+            "example": "https://svc-a.example.com/webhooks/payment-hub"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
+      "CreatedServiceResponseDto": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f3c1e-2d4a-4b8e-9f10-123456789abc"
+          },
+          "code": {
+            "type": "string",
+            "description": "서비스 코드",
+            "example": "SVC_A"
+          },
+          "name": {
+            "type": "string",
+            "description": "서비스 이름",
+            "example": "서비스 A"
+          },
+          "status": {
+            "type": "string",
+            "description": "상태",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED"
+            ],
+            "example": "ACTIVE"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "웹훅 URL",
+            "example": "https://svc-a.example.com/webhooks/payment-hub",
+            "nullable": true
+          },
+          "hasWebhookSecret": {
+            "type": "boolean",
+            "description": "웹훅 서명 키 발급 여부 (키 자체는 발급·교체 응답에서 1회만)",
+            "example": true
+          },
+          "deletedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "삭제 시각 (soft delete)",
+            "nullable": true,
+            "example": null
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "생성 시각",
+            "example": "2026-09-26T07:15:22.323Z"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "수정 시각",
+            "example": "2026-09-26T07:15:22.323Z"
+          },
+          "webhookSecret": {
+            "type": "string",
+            "description": "웹훅 HMAC 서명 키 평문. 이 응답에서만 제공",
+            "example": "whsec_9f2c..."
+          }
+        },
+        "required": [
+          "serviceId",
+          "code",
+          "name",
+          "status",
+          "webhookUrl",
+          "hasWebhookSecret",
+          "deletedAt",
+          "createdAt",
+          "updatedAt",
+          "webhookSecret"
+        ]
+      },
+      "AdminServiceResponseDto": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f3c1e-2d4a-4b8e-9f10-123456789abc"
+          },
+          "code": {
+            "type": "string",
+            "description": "서비스 코드",
+            "example": "SVC_A"
+          },
+          "name": {
+            "type": "string",
+            "description": "서비스 이름",
+            "example": "서비스 A"
+          },
+          "status": {
+            "type": "string",
+            "description": "상태",
+            "enum": [
+              "ACTIVE",
+              "SUSPENDED"
+            ],
+            "example": "ACTIVE"
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "웹훅 URL",
+            "example": "https://svc-a.example.com/webhooks/payment-hub",
+            "nullable": true
+          },
+          "hasWebhookSecret": {
+            "type": "boolean",
+            "description": "웹훅 서명 키 발급 여부 (키 자체는 발급·교체 응답에서 1회만)",
+            "example": true
+          },
+          "deletedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "삭제 시각 (soft delete)",
+            "nullable": true,
+            "example": null
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "생성 시각",
+            "example": "2026-09-26T07:15:22.323Z"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "수정 시각",
+            "example": "2026-09-26T07:15:22.323Z"
+          }
+        },
+        "required": [
+          "serviceId",
+          "code",
+          "name",
+          "status",
+          "webhookUrl",
+          "hasWebhookSecret",
+          "deletedAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "AdminServicePageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminServiceResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "description": "필터에 맞는 전체 개수",
+            "example": 12
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "다음 페이지 cursor. 마지막 페이지면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "UpdateServiceRequestDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "서비스 이름",
+            "example": "서비스 A",
+            "maxLength": 100
+          },
+          "webhookUrl": {
+            "type": "string",
+            "description": "웹훅 URL. null이면 웹훅 전송 중지",
+            "example": "https://svc-a.example.com/webhooks/payment-hub",
+            "nullable": true
+          }
+        }
+      },
+      "AdminReasonRequestDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "작업 사유 (감사 로그에 기록)",
+            "example": "결제 이상 거래 조사",
+            "maxLength": 200
+          }
+        }
+      },
+      "WebhookSecretResponseDto": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f3c1e-2d4a-4b8e-9f10-123456789abc"
+          },
+          "webhookSecret": {
+            "type": "string",
+            "description": "새 웹훅 서명 키 평문. 이 응답에서만 제공",
+            "example": "whsec_9f2c..."
+          }
+        },
+        "required": [
+          "serviceId",
+          "webhookSecret"
+        ]
+      },
+      "IssueApiKeyRequestDto": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "키 용도 표시",
+            "example": "prod-server-1",
+            "maxLength": 50
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "만료 시각. 없으면 만료 없음",
+            "example": "2027-09-26T00:00:00.000Z"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "IssuedApiKeyResponseDto": {
+        "type": "object",
+        "properties": {
+          "apiKeyId": {
+            "type": "string",
+            "description": "API 키 ID",
+            "example": "7c1e0a2b-..."
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f3c1e-..."
+          },
+          "label": {
+            "type": "string",
+            "description": "키 용도",
+            "example": "prod-server-1"
+          },
+          "keyPrefix": {
+            "type": "string",
+            "description": "환경 prefix",
+            "example": "ph_live_"
+          },
+          "keyHint": {
+            "type": "string",
+            "description": "키 끝 4자리",
+            "example": "a1B9"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "만료 시각. null이면 만료 없음",
+            "nullable": true
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "마지막 사용 시각. 키 교체 시 구 키가 더 이상 쓰이지 않는지 확인",
+            "nullable": true
+          },
+          "revokedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "폐기 시각. null이면 유효",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "발급 시각",
+            "example": "2026-09-26T07:15:22.323Z"
+          },
+          "apiKey": {
+            "type": "string",
+            "description": "API 키 평문. 이 응답에서만 제공 — 서비스는 Authorization: Bearer <apiKey>로 사용",
+            "example": "ph_live_4Jt9xQ2mV8..."
+          }
+        },
+        "required": [
+          "apiKeyId",
+          "serviceId",
+          "label",
+          "keyPrefix",
+          "keyHint",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt",
+          "createdAt",
+          "apiKey"
+        ]
+      },
+      "ApiKeyResponseDto": {
+        "type": "object",
+        "properties": {
+          "apiKeyId": {
+            "type": "string",
+            "description": "API 키 ID",
+            "example": "7c1e0a2b-..."
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f3c1e-..."
+          },
+          "label": {
+            "type": "string",
+            "description": "키 용도",
+            "example": "prod-server-1"
+          },
+          "keyPrefix": {
+            "type": "string",
+            "description": "환경 prefix",
+            "example": "ph_live_"
+          },
+          "keyHint": {
+            "type": "string",
+            "description": "키 끝 4자리",
+            "example": "a1B9"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "만료 시각. null이면 만료 없음",
+            "nullable": true
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "마지막 사용 시각. 키 교체 시 구 키가 더 이상 쓰이지 않는지 확인",
+            "nullable": true
+          },
+          "revokedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "폐기 시각. null이면 유효",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "발급 시각",
+            "example": "2026-09-26T07:15:22.323Z"
+          }
+        },
+        "required": [
+          "apiKeyId",
+          "serviceId",
+          "label",
+          "keyPrefix",
+          "keyHint",
+          "expiresAt",
+          "lastUsedAt",
+          "revokedAt",
+          "createdAt"
+        ]
+      },
+      "RegisterPgCredentialRequestDto": {
+        "type": "object",
+        "properties": {
+          "environment": {
+            "type": "string",
+            "description": "PG 환경. 키 prefix(test_ / live_)와 일치해야 함",
+            "enum": [
+              "TEST",
+              "LIVE"
+            ]
+          },
+          "merchantId": {
+            "type": "string",
+            "description": "토스 상점 ID (mId)",
+            "example": "tosspayments",
+            "maxLength": 100
+          },
+          "clientKey": {
+            "type": "string",
+            "description": "토스 클라이언트 키 (공개 값, 결제창용)",
+            "example": "live_ck_...",
+            "maxLength": 200
+          },
+          "secretKey": {
+            "type": "string",
+            "description": "토스 시크릿 키. 암호화 저장되며 어떤 응답에도 다시 나오지 않음",
+            "example": "live_sk_...",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "environment",
+          "clientKey",
+          "secretKey"
+        ]
+      },
+      "PgCredentialResponseDto": {
+        "type": "object",
+        "properties": {
+          "pgCredentialId": {
+            "type": "string",
+            "description": "PG 자격증명 ID",
+            "example": "5d2a..."
+          },
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f..."
+          },
+          "provider": {
+            "type": "string",
+            "description": "PG사",
+            "enum": [
+              "TOSS"
+            ],
+            "example": "TOSS"
+          },
+          "environment": {
+            "type": "string",
+            "description": "환경",
+            "enum": [
+              "TEST",
+              "LIVE"
+            ],
+            "example": "LIVE"
+          },
+          "merchantId": {
+            "type": "string",
+            "description": "토스 상점 ID",
+            "nullable": true,
+            "example": "tosspayments"
+          },
+          "clientKey": {
+            "type": "string",
+            "description": "클라이언트 키 (공개 값)",
+            "nullable": true,
+            "example": "live_ck_..."
+          },
+          "secretKeyHint": {
+            "type": "string",
+            "description": "시크릿 키 끝 4자리",
+            "example": "1a2b"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "활성 여부. (서비스, 환경)당 활성 1개",
+            "example": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "등록 시각",
+            "example": "2026-09-27T01:00:00.000Z"
+          }
+        },
+        "required": [
+          "pgCredentialId",
+          "serviceId",
+          "provider",
+          "environment",
+          "merchantId",
+          "clientKey",
+          "secretKeyHint",
+          "isActive",
+          "createdAt"
+        ]
+      },
+      "CreateProductTypeRequestDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "상품 유형 코드. 영문 대문자로 시작, 대문자·숫자·_ 1~50자",
+            "example": "PLAN"
+          },
+          "name": {
+            "type": "string",
+            "description": "표시 이름",
+            "example": "구독 요금제",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
+      "ProductTypeResponseDto": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "description": "서비스 ID",
+            "example": "0b6f..."
+          },
+          "code": {
+            "type": "string",
+            "description": "상품 유형 코드",
+            "example": "PLAN"
+          },
+          "name": {
+            "type": "string",
+            "description": "표시 이름",
+            "example": "구독 요금제"
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "활성 여부. false면 새 주문에 사용 불가",
+            "example": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "등록 시각",
+            "example": "2026-09-27T01:00:00.000Z"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "description": "수정 시각",
+            "example": "2026-09-27T01:00:00.000Z"
+          }
+        },
+        "required": [
+          "serviceId",
+          "code",
+          "name",
+          "isActive",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UpdateProductTypeRequestDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "표시 이름",
+            "example": "구독 요금제",
+            "maxLength": 100
+          },
+          "isActive": {
+            "type": "boolean",
+            "description": "false = 중지 (새 주문에 사용 불가), true = 재개",
+            "example": false
+          }
+        }
+      }
+    }
+  }
+}

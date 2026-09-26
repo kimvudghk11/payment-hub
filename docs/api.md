@@ -3,6 +3,7 @@
 > 연동 서비스 개발자와 admin 레포 개발자를 위한 API 계약서.
 > 설계 원칙과 배경은 [CLAUDE.md](../CLAUDE.md), 스키마는 [db/schema.sql](../db/schema.sql) 참고.
 > 구현 상태는 각 API 옆 표시: ✅ 구현됨 · 🚧 예정
+> 연동 방법은 가이드부터: [서비스 연동](guides/service-integration.md) · [admin 연동](guides/admin-integration.md) · 클라이언트 생성용 [openapi.json](openapi.json)
 
 ## 목차
 
@@ -157,7 +158,7 @@ API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키�
 |---|---|---|---|
 | `code` | string | ✅ | 영문 대문자·숫자·`_`, 최대 20자, 전역 유일 → 중복 시 `409 SERVICE_CODE_DUPLICATED` |
 | `name` | string | ✅ | 최대 100자 |
-| `webhookUrl` | string | | `https` URL. 없으면 웹훅을 보내지 않음 |
+| `webhookUrl` | string | | http(s) URL. **LIVE 배포는 https만**, TEST 배포는 로컬 개발용 `http://localhost…`도 허용. 없으면 웹훅을 보내지 않음 |
 
 ```json
 // 응답 201 — webhookSecret은 이 응답에서 1회만
@@ -646,6 +647,8 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `PAYMENT_WAITING_FOR_DEPOSIT` | 가상계좌 발급, 입금 대기 |
 | `PAYMENT_CANCELED` | 전체·부분 환불 완료 |
 | `ORDER_EXPIRED` | 결제 없이 주문 만료 |
+
+서명 규격 구현(`src/outbox/webhook-signature.ts`)과 서비스용 검증 예제([examples/webhook-signature-verify.ts](../examples/webhook-signature-verify.ts))는 ✅ — 서로 맞는지 테스트된다. 발송(outbox 폴러)은 🚧.
 
 ### 서비스 쪽 처리 규칙
 

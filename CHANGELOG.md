@@ -6,6 +6,27 @@
 
 ### 2026-09-27
 
+#### docs: 서비스·admin 연동 가이드, OpenAPI 스펙, 테스트된 예제 코드, 로컬 온보딩 도구 추가
+- **무엇을**:
+  - 연동 가이드: `docs/guides/service-integration.md`(받을 값, 호출·재시도 규칙, 결제 흐름, 토스 결제창, 웹훅 수신 구현, 에러 코드별 대응, 운영 체크리스트), `docs/guides/admin-integration.md`(책임 경계, admin 키 발급·교체, 헤더·감사 로그·사유, 온보딩 4단계, 화면별 API 매핑, 키·PG·서명 키 교체 절차)
+  - `docs/openapi.json`: DB 없이(Nest preview 모드) 코드에서 생성. `npm run openapi:export`, 코드와 다르면 `test/docs/openapi.spec.ts` 실패. Swagger 설정을 `src/openapi.ts`로 모아 `/docs`와 공유
+  - 웹훅 서명 규격 구현 `src/outbox/webhook-signature.ts` (`v1=HMAC-SHA256(secret, "<ts>.<body>")`) + 서비스용 검증 예제 `examples/webhook-signature-verify.ts` (재전송 5분 제한, timingSafeEqual). 둘이 맞는지 테스트
+  - 예제 클라이언트 `examples/{http,service-client,admin-client}.ts` (내장 fetch만) — 실제 HTTP로 띄운 hub에 붙여 온보딩·주문·에러 분기·정지·키 교체 흐름 검증
+  - 스크립트 `npm run admin-key:generate`(평문 키 + hub용 해시), `npm run local:onboard`(서비스·상품 유형·토스 테스트 키·API 키 준비, 재실행 시 서비스 재사용, 발급 키로 실제 호출 확인 후 서비스 .env 값 출력)
+  - 웹훅 URL 정책: TEST 배포는 로컬 개발용 `http`(localhost 포함) 허용, LIVE 배포는 https만 (`webhook-url.policy.ts`). 검증 메시지 `httpsUrl` → `httpUrl`
+  - `tsconfig.build.json`에서 `scripts/`, `examples/` 제외 (빌드 산출물 구조 유지), lint·format 대상에 포함
+- **왜**:
+  - 서비스·admin 레포를 이 레포와 문서만 보고 연동할 수 있어야 함. 문서의 코드가 틀리면 연동이 막히므로, 가이드가 싣는 예제·서명 검증 코드를 실제 hub에 붙여 테스트해 "문서가 틀릴 수 없게" 함
+  - OpenAPI 파일을 손으로 관리하면 코드와 어긋남 → 코드에서 생성하고 불일치를 테스트로 잡음. 연동 쪽이 클라이언트를 생성할 수 있음
+  - 웹훅 발송은 아직 없지만 서비스가 수신부를 먼저 만들 수 있도록 서명 규격과 검증 코드를 먼저 확정
+  - https만 허용하면 서비스 개발자가 로컬 수신 서버로 연동 테스트를 할 수 없음. 운영(LIVE)은 결제 이벤트 평문 전송을 막기 위해 https 유지
+  - 로컬 온보딩도 관리자 API만 사용 (DB 직접 수정 금지 원칙, 감사 로그가 남음)
+- **변경 파일**: `docs/guides/*`, `docs/openapi.json`, `docs/api.md`, `examples/*`, `scripts/*`, `src/openapi.ts`, `src/main.ts`, `src/app.setup.ts`, `src/outbox/webhook-signature.ts`, `src/admin/service/{webhook-url.policy,admin-service.service}.ts`, `src/admin/service/dto/request/{create,update}-service.request.dto.ts`, `src/common/utils/validation-message.util.ts`, `test/docs/*`, `test/admin/*`, `test/common/validation-message.util.spec.ts`, `package.json`, `tsconfig.build.json`, `CLAUDE.md`, `README.md`
+- **문서**: CLAUDE.md 7장(레포 루트 구조), 6.2(웹훅 URL 환경별 규칙), 9장(연동 문서 동기화 규칙) 갱신
+- **남은 작업 / 주의**:
+  - 가이드의 🚧 항목(결제 승인·환불·빌링·웹훅 발송·이벤트 재조회)은 구현 시 상태와 예제를 갱신
+  - 예제 클라이언트는 구현된 API만 포함. 결제 API 구현 시 `examples/service-client.ts`에 추가하고 `test/docs`에서 검증
+
 #### feat(order): 주문 사전 등록·조회 API 추가
 - **무엇을**:
   - `Order.create`: 주문 ID 생성, 항목(순번·단가×수량) 생성, `sum(항목) = 원금`, `원금 − 할인 = 결제 금액 > 0`, 안전 정수 범위 검증 → 실패 시 `ORDER_AMOUNT_INVALID` + 계산값 detail

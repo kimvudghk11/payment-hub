@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsNotEmpty, IsOptional, IsString, IsUrl, MaxLength, ValidateIf } from 'class-validator';
 import { ValidationMessage } from '../../../../common/utils/validation-message.util';
 import { ServiceUpdate } from '../../../../service/domain/service.entity';
-import { HTTPS_URL_OPTIONS } from './create-service.request.dto';
+import { WEBHOOK_URL_OPTIONS } from './create-service.request.dto';
 
 export class UpdateServiceRequestDto {
   @ApiPropertyOptional({ description: '서비스 이름', example: '서비스 A', maxLength: 100 })
@@ -19,7 +19,7 @@ export class UpdateServiceRequestDto {
     type: String,
   })
   @ValidateIf((dto: UpdateServiceRequestDto) => dto.webhookUrl !== undefined && dto.webhookUrl !== null)
-  @IsUrl(HTTPS_URL_OPTIONS, { message: ValidationMessage.httpsUrl('webhookUrl') })
+  @IsUrl(WEBHOOK_URL_OPTIONS, { message: ValidationMessage.httpUrl('webhookUrl') })
   webhookUrl?: string | null;
 
   toUpdate(): ServiceUpdate {

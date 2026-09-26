@@ -181,6 +181,27 @@ stateDiagram-v2
 
 ---
 
+## 연동하기
+
+이 레포와 아래 문서만으로 서비스·admin 연동을 시작할 수 있다. 문서의 예제 코드는 실제 hub에 붙여 자동 테스트된다.
+
+| 누가 | 시작점 | 내용 |
+|---|---|---|
+| 결제를 붙이는 서비스 개발자 | [docs/guides/service-integration.md](./docs/guides/service-integration.md) | 받을 값, 호출 규칙, 결제 흐름, 웹훅 서명 검증, 에러 대응, 체크리스트 |
+| admin 레포 개발자 | [docs/guides/admin-integration.md](./docs/guides/admin-integration.md) | admin 키, 온보딩 절차, 화면별 API, 키 교체 등 운영 절차 |
+| 공통 | [docs/api.md](./docs/api.md) · [docs/openapi.json](./docs/openapi.json) | API 계약 전체 · 클라이언트 생성용 스펙 (코드와 불일치 시 테스트 실패) |
+| 예제 코드 | [examples/](./examples) | 서비스·admin 클라이언트, 웹훅 서명 검증 (Node 내장 모듈만 사용) |
+
+로컬에서 바로 붙여 보기:
+
+```bash
+npm run admin-key:generate      # admin 키 생성 → 해시를 .env ADMIN_API_KEY_HASHES에
+npm run db:up && npm run start:dev
+HUB_URL=http://localhost:3000 ADMIN_API_KEY=phadm_... npm run local:onboard   # 테스트 서비스·API 키 준비
+```
+
+---
+
 ## 실행 방법
 
 **요구 사항**: Node.js 20+, Docker
@@ -212,6 +233,9 @@ npm run start:dev
 | `npm run lint` | ESLint (type-checked) |
 | `npm test` | 단위 테스트 (`test/**/*.spec.ts`, DB 불필요) |
 | `npm run test:integration` | 통합 테스트 (`test/**/*.int-spec.ts`). `payment_hub_test` DB를 새로 만들고 `db/schema.sql` 적용 |
+| `npm run openapi:export` | `docs/openapi.json` 재생성 (DB 불필요). API를 바꾸면 실행해 함께 커밋 |
+| `npm run admin-key:generate` | admin 레포용 관리자 키와 hub에 넣을 해시 생성 |
+| `npm run local:onboard` | 로컬 hub에 테스트 서비스·상품 유형·토스 테스트 키·API 키 준비, 서비스 .env 값 출력 |
 
 `db/schema.sql`이 SSOT이고 TypeORM `synchronize`를 쓰지 않는다. 대신 `test/schema/`의 적합성 테스트가 엔티티와 스키마(테이블·컬럼·타입·길이·nullable·PK·FK), 상태 constants와 DB CHECK 값이 어긋나지 않는지 검증한다.
 
@@ -250,10 +274,11 @@ src
 - [x] 관리자 API: PG 자격증명(암호화 저장·환경 prefix 검증), 상품 유형 — **서비스 온보딩 완성**
 - [x] 서비스 API: 결제창 설정 `GET /pg/client-config`
 - [x] 주문 사전 등록·조회 (금액 고정, 상품 유형 검증, 멱등·동시 요청 안전)
+- [x] 연동 준비: 연동 가이드, OpenAPI 스펙(최신 여부 테스트), 테스트된 예제 클라이언트, 웹훅 서명 규격, 로컬 온보딩 스크립트
 - [ ] 결제 승인 → 원장 기장 → outbox
 - [ ] 취소/부분 취소, 빌링 자동결제, 가상계좌
 - [ ] 웹훅 전달 폴러, 대사 배치
 - [ ] 관리자 조회·운영 API, 매출 리포트
 
-- API 명세: [docs/api.md](./docs/api.md)
+- API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)
 - 변경 이력과 각 결정의 이유: [CHANGELOG.md](./CHANGELOG.md)

@@ -9,17 +9,20 @@
   },
   "scripts": {
     "build": "nest build",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"{src,test,scripts,examples}/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "lint": "eslint \"{src,test,scripts,examples}/**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
-    "test:integration": "jest --config test/jest-integration.json --runInBand"
+    "test:integration": "jest --config test/jest-integration.json --runInBand",
+    "openapi:export": "ts-node scripts/export-openapi.ts",
+    "admin-key:generate": "ts-node scripts/generate-admin-key.ts",
+    "local:onboard": "ts-node scripts/local-onboard.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.6",

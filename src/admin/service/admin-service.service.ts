@@ -19,6 +19,7 @@ import { AdminAuditService } from '../audit/admin-audit.service';
 import { AdminAuditAction, AuditTargetType } from '../audit/constants/admin-audit.constants';
 import { ListServicesQueryDto } from './dto/request/list-services.query.dto';
 import { lockActiveService } from './service-lock';
+import { assertWebhookUrlAllowed } from './webhook-url.policy';
 
 const WEBHOOK_SECRET_PREFIX = 'whsec_';
 
@@ -47,6 +48,7 @@ export class AdminServiceService {
     params: { code: string; name: string; webhookUrl?: string },
     actor: AdminActor,
   ): Promise<{ service: Service; webhookSecret: string }> {
+    assertWebhookUrlAllowed(this.environment, params.webhookUrl);
     if (await this.services.existsBy({ code: params.code })) {
       throw new BusinessException(ErrorCode.SERVICE_CODE_DUPLICATED);
     }
@@ -95,6 +97,7 @@ export class AdminServiceService {
 
   @Transactional()
   async update(serviceId: string, changes: ServiceUpdate, actor: AdminActor): Promise<Service> {
+    assertWebhookUrlAllowed(this.environment, changes.webhookUrl);
     const service = await lockActiveService(this.services, serviceId);
     const before = service.auditSnapshot();
 

@@ -18,7 +18,7 @@ describe('ValidationMessage', () => {
     expect(ValidationMessage.string('code')).toBe('code는 문자열이어야 합니다.');
     expect(ValidationMessage.maxLength('name', 100)).toBe('name은 100자 이하여야 합니다.');
     expect(ValidationMessage.positive('amount')).toBe('amount는 0보다 커야 합니다.');
-    expect(ValidationMessage.httpsUrl('webhookUrl')).toBe('webhookUrl은 https URL이어야 합니다.');
+    expect(ValidationMessage.httpUrl('webhookUrl')).toBe('webhookUrl은 http(s) URL이어야 합니다.');
     expect(ValidationMessage.dateString('expiresAt')).toBe('expiresAt는 ISO 8601 날짜여야 합니다.');
     expect(ValidationMessage.format('code', '영문 대문자·숫자·_ 2~20자')).toBe(
       'code는 형식이 올바르지 않습니다 (영문 대문자·숫자·_ 2~20자).',
