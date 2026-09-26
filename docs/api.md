@@ -332,9 +332,9 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| `POST` | `/orders` | 주문 등록 | 🚧 |
-| `GET` | `/orders/:orderId` | 주문 단건 (항목·결제 포함) | 🚧 |
-| `GET` | `/orders` | 주문 목록 (`externalOrderId`, `externalUserId`, `externalSubscriptionId`, `status`, `from`, `to`) | 🚧 |
+| `POST` | `/orders` | 주문 등록 (새로 만들면 `201`, 같은 요청 재시도면 `200`) | ✅ |
+| `GET` | `/orders/:orderId` | 주문 단건 (항목 포함. 결제 정보는 결제 API 구현 시 추가) | ✅ |
+| `GET` | `/orders` | 주문 목록 — 항목 없는 요약 (`externalOrderId`, `externalUserId`, `externalSubscriptionId`, `status`, `from`, `to`, `limit`, `cursor`) | ✅ |
 
 #### `POST /orders` — 주문 등록
 
@@ -357,15 +357,66 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 }
 ```
 
+| 필드 | 타입 | 필수 | 규칙 |
+|---|---|---|---|
+| `externalOrderId` | string | ✅ | 최대 100자. `(서비스, externalOrderId)`가 멱등키 |
+| `externalUserId` | string | ✅ | 최대 100자 |
+| `externalSubscriptionId` | string | | 최대 100자. 정기결제 체인 조회용 |
+| `orderName` | string | ✅ | 최대 100자. 토스 결제창 표시 |
+| `currency` | string | | ISO 4217 대문자 3자리. 기본 `KRW` |
+| `items` | array | ✅ | 1~100개 |
+| `items[].productType` | string | ✅ | 활성 상품 유형 코드 |
+| `items[].externalProductId` / `productName` | string | ✅ | 최대 100자 |
+| `items[].unitPrice` | integer | ✅ | 0 이상, 통화 최소 단위 |
+| `items[].quantity` | integer | ✅ | 1 이상 |
+| `discountType` | string | | 최대 50자. 저장만 |
+| `discountAmount` | integer | | 0 이상. 기본 0 |
+| `totalAmount` | integer | ✅ | 1 이상 |
+| `expiresInSeconds` | integer | | 60 ~ 604800(7일). 기본 1800 |
+| `metadata` | object | | 서비스 맥락. 저장만 |
+
 | 검증 | 실패 시 |
 |---|---|
-| `items[].amount = unitPrice × quantity`, `sum(items.amount) − discountAmount = totalAmount` | `400 ORDER_AMOUNT_INVALID` |
-| `productType`이 활성 상품 유형 | `400 PRODUCT_TYPE_NOT_ALLOWED` |
-| 같은 `externalOrderId`로 내용이 다른 주문 존재 | `409 ORDER_IDEMPOTENCY_CONFLICT` (내용이 같으면 기존 주문 200) |
+| `sum(unitPrice × quantity) − discountAmount = totalAmount`, 할인 ≤ 원금 | `400 ORDER_AMOUNT_INVALID` + `detail { originalAmount, discountAmount, expectedTotalAmount, totalAmount }` |
+| `productType`이 등록된 **활성** 상품 유형 | `400 PRODUCT_TYPE_NOT_ALLOWED` + `detail { productTypes: ["NOPE", ...] }` |
+| 같은 `externalOrderId`로 내용이 다른 주문 존재 | `409 ORDER_IDEMPOTENCY_CONFLICT` |
+
+**멱등**: 같은 `externalOrderId`로 **같은 내용**(사용자·구독·주문명·통화·항목·할인·금액·metadata)을 다시 보내면 기존 주문을 `200`으로 돌려준다. `expiresInSeconds`는 비교하지 않는다(재시도마다 만료가 늘어나지 않음). 동시에 여러 번 보내도 주문은 하나만 생긴다.
 
 - 할인·금액 계산은 서비스 책임. hub는 합계가 맞는지만 확인하고, `discountType`·`metadata`는 해석 없이 저장한다
 - 응답의 `orderId`를 토스 결제창의 `orderId`로 사용한다
-- `expiresInSeconds`(기본 1800) 이후에는 결제 승인이 `409 ORDER_EXPIRED`
+- `expiresInSeconds` 이후에는 결제 승인이 `409 ORDER_EXPIRED`
+
+```json
+// 응답 201 (재시도는 200, 본문 동일)
+{
+  "success": true,
+  "message": "주문이 등록되었습니다.",
+  "data": {
+    "orderId": "3f1a8c2e-...",
+    "externalOrderId": "svc-a-order-20260926-0001",
+    "externalUserId": "user-123",
+    "externalSubscriptionId": "sub-77",
+    "orderName": "프로 요금제 1개월 외 1건",
+    "currency": "KRW",
+    "originalAmount": 35000,
+    "discountType": "COUPON_WELCOME",
+    "discountAmount": 5000,
+    "totalAmount": 30000,
+    "status": "PENDING",
+    "expiresAt": "2026-09-27T01:30:00.000Z",
+    "paidAt": null,
+    "metadata": { "plan": "pro" },
+    "createdAt": "2026-09-27T01:00:00.000Z",
+    "items": [
+      { "orderItemId": "c1...", "lineNo": 1, "productType": "PLAN", "externalProductId": "pro-monthly", "productName": "프로 요금제 1개월", "unitPrice": 29000, "quantity": 1, "amount": 29000, "canceledQuantity": 0 },
+      { "orderItemId": "c2...", "lineNo": 2, "productType": "ADDON", "externalProductId": "storage-10g", "productName": "추가 저장공간 10GB", "unitPrice": 3000, "quantity": 2, "amount": 6000, "canceledQuantity": 0 }
+    ]
+  }
+}
+```
+
+`GET /orders/:orderId`는 위 `data`와 같은 형태. 다른 서비스의 주문 ID면 `404 ORDER_NOT_FOUND`.
 
 ### 3.3 결제
 

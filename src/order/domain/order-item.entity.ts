@@ -50,4 +50,39 @@ export class OrderItem extends BaseEntity {
     { name: 'service_id', referencedColumnName: 'serviceId' },
   ])
   order: Order;
+
+  /** 주문 생성 시에만 만든다 (Order.create). 금액 = 단가 × 수량 */
+  static create(params: { orderId: string; serviceId: string; lineNo: number; item: OrderItemInput }): OrderItem {
+    const orderItem = new OrderItem();
+    orderItem.orderId = params.orderId;
+    orderItem.serviceId = params.serviceId;
+    orderItem.lineNo = params.lineNo;
+    orderItem.productType = params.item.productType;
+    orderItem.externalProductId = params.item.externalProductId;
+    orderItem.productName = params.item.productName;
+    orderItem.unitPrice = params.item.unitPrice;
+    orderItem.quantity = params.item.quantity;
+    orderItem.amount = params.item.unitPrice * params.item.quantity;
+    orderItem.canceledQuantity = 0;
+    return orderItem;
+  }
+
+  /** 멱등 비교용: 서비스가 보낸 값만 (순번·금액·취소 수량 같은 파생값 제외) */
+  toInput(): OrderItemInput {
+    return {
+      productType: this.productType,
+      externalProductId: this.externalProductId,
+      productName: this.productName,
+      unitPrice: this.unitPrice,
+      quantity: this.quantity,
+    };
+  }
+}
+
+export interface OrderItemInput {
+  productType: string;
+  externalProductId: string;
+  productName: string;
+  unitPrice: number;
+  quantity: number;
 }

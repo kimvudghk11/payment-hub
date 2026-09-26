@@ -6,6 +6,23 @@
 
 ### 2026-09-27
 
+#### feat(order): 주문 사전 등록·조회 API 추가
+- **무엇을**:
+  - `Order.create`: 주문 ID 생성, 항목(순번·단가×수량) 생성, `sum(항목) = 원금`, `원금 − 할인 = 결제 금액 > 0`, 안전 정수 범위 검증 → 실패 시 `ORDER_AMOUNT_INVALID` + 계산값 detail
+  - `Order.matches`: 멱등 재요청 비교 (사용자·구독·주문명·통화·항목·할인·금액·metadata, metadata는 키 순서 무관). 만료 시각은 비교 제외
+  - `POST /api/v1/orders`: 활성 상품 유형만 허용(`PRODUCT_TYPE_NOT_ALLOWED` + 거부된 코드 목록), 새 주문 `201` / 같은 요청 재시도 `200` / 내용 다르면 `409 ORDER_IDEMPOTENCY_CONFLICT`
+  - `GET /api/v1/orders/:orderId`(항목 포함, 타 서비스 `404 ORDER_NOT_FOUND`), `GET /api/v1/orders`(요약 목록, 필터 + cursor 페이징)
+  - cursor 페이징을 `paginateByCreatedAt()`으로 추출해 관리자 서비스 목록과 공유
+- **왜**:
+  - 결제 금액을 결제 전에 서버 간 호출로 고정해야 confirm 시 클라이언트 금액 변조를 막을 수 있음 (CLAUDE.md 5장)
+  - `sum(order_item.amount) = original_amount`는 DB가 강제하지 못하므로 엔티티 팩토리에서 강제 (4장 "앱이 지켜야 하는 규칙")
+  - 상품 유형 FK는 존재만 강제하고 중지 여부는 모르므로 앱이 활성 여부를 확인
+  - 서비스 서버는 네트워크 오류 시 주문 등록을 재시도하므로 같은 요청은 같은 결과여야 함. 사전 조회와 저장 사이의 경합은 유니크 위반을 **실패한 트랜잭션 밖에서** 다시 읽어 멱등 응답으로 바꿈. 경합 경로는 HTTP 동시 요청으로는 재현이 불안정해 조회를 한 번 가로채는 결정적 테스트로 검증
+  - 재시도마다 만료 시각이 늘어나면 안 되므로 만료는 비교 대상에서 제외하고 최초 값을 유지
+- **변경 파일**: `src/order/**`, `src/common/database/cursor-pagination.ts`, `src/admin/service/admin-service.service.ts`, `src/app.module.ts`, `test/order/**`, `docs/api.md`, `README.md`
+- **스키마/에러 코드**: 변경 없음
+- **남은 작업 / 주의**: 만료 배치(`PENDING → EXPIRED`, `ORDER_EXPIRED` 이벤트)와 주문 단건의 결제 정보는 결제 구현 시
+
 #### feat(admin): PG 자격증명·상품 유형 관리 API 및 결제창 설정 조회 추가
 - **무엇을**:
   - `PgCredential.register`(시크릿 키는 암호화 함수로만 넘기고 암호문·끝 4자리만 보관, 키 prefix `test_`/`live_`와 환경 불일치 시 `INVALID_REQUEST`), `deactivate`(멱등), `auditSnapshot`

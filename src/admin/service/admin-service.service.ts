@@ -2,16 +2,16 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
-import { Brackets, IsNull, Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { Transactional } from 'typeorm-transactional';
 import { pgEnvironmentOf } from '../../common/config/pg-environment.config';
 import { EncryptionService } from '../../common/crypto/encryption.service';
+import { paginateByCreatedAt } from '../../common/database/cursor-pagination';
 import { isUniqueViolation } from '../../common/database/unique-violation';
 import { BusinessException } from '../../common/errors/business.exception';
 import { ErrorCode } from '../../common/errors/error-code';
 import { IPageable } from '../../common/interceptors/response.interceptor';
 import { AdminActor } from '../../common/types/request-context';
-import { decodeCursor, encodeCursor } from '../../common/utils/cursor.util';
 import { PgEnvironment } from '../../service/constants/service.constants';
 import { ServiceApiKey } from '../../service/domain/service-api-key.entity';
 import { Service, ServiceUpdate } from '../../service/domain/service.entity';
@@ -20,7 +20,6 @@ import { AdminAuditAction, AuditTargetType } from '../audit/constants/admin-audi
 import { ListServicesQueryDto } from './dto/request/list-services.query.dto';
 import { lockActiveService } from './service-lock';
 
-const DEFAULT_PAGE_SIZE = 20;
 const WEBHOOK_SECRET_PREFIX = 'whsec_';
 
 /**
@@ -77,40 +76,15 @@ export class AdminServiceService {
   }
 
   async list(query: ListServicesQueryDto): Promise<IPageable<Service>> {
-    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
     const filtered = this.services.createQueryBuilder('s');
     if (!query.includeDeleted) filtered.andWhere('s.deletedAt IS NULL');
     if (query.status) filtered.andWhere('s.status = :status', { status: query.status });
-
-    const totalCount = await filtered.clone().getCount();
-
-    const page = filtered.clone();
-    if (query.cursor) {
-      const { createdAt, id } = decodeCursor(query.cursor);
-      page.andWhere(
-        new Brackets((qb) =>
-          qb
-            .where('s.createdAt < :createdAt', { createdAt })
-            .orWhere('s.createdAt = :createdAt AND s.serviceId < :id', {
-              createdAt,
-              id,
-            }),
-        ),
-      );
-    }
-    const rows = await page
-      .orderBy('s.createdAt', 'DESC')
-      .addOrderBy('s.serviceId', 'DESC')
-      .take(limit + 1)
-      .getMany();
-
-    const data = rows.slice(0, limit);
-    const last = data[data.length - 1];
-    return {
-      data,
-      totalCount,
-      nextCursor: rows.length > limit ? encodeCursor({ createdAt: last.createdAt, id: last.serviceId }) : null,
-    };
+    return paginateByCreatedAt(filtered, {
+      alias: 's',
+      idProperty: 'serviceId',
+      limit: query.limit,
+      cursor: query.cursor,
+    });
   }
 
   async get(serviceId: string): Promise<Service> {
