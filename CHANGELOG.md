@@ -6,6 +6,21 @@
 
 ### 2026-09-26
 
+#### chore: NestJS 프로젝트 초기 세팅
+- **무엇을**:
+  - NestJS 11 프로젝트 뼈대: `package.json`, `tsconfig*.json`, `nest-cli.json`, ESLint 10(flat config, type-checked) + Prettier, `.editorconfig`, `.gitattributes`(LF 고정), `.gitignore`, `.env.example`
+  - `src/main.ts`: 전역 prefix `/api/v1`, `ValidationPipe`(whitelist·forbidNonWhitelisted·transform), Swagger(`/docs`, production 제외), CORS 비활성, `initializeTransactionalContext()`
+  - `src/app.module.ts`: ConfigModule(global), TypeORM(PostgreSQL, `autoLoadEntities`) + `typeorm-transactional` DataSource 등록, ScheduleModule
+  - `docker-compose.yml`: postgres:15, 최초 기동 시 `db/schema.sql` 자동 적용
+  - Jest 설정(`test/**/*.spec.ts`), 포트폴리오용 `README.md`
+- **왜**:
+  - 스키마 SSOT는 `db/schema.sql`이므로 TypeORM `synchronize`/`migrationsRun`을 끄고 엔티티가 스키마를 바꾸지 못하게 함
+  - `@Transactional()`로 선기록(tx1) → 토스 호출 → 결과 반영(tx2) 흐름을 서비스 레이어에서 선언적으로 구성하기 위함
+  - 서버 간 통신 전용이라 CORS 불필요. 알 수 없는 필드는 거부해 요청 계약을 엄격히 유지
+  - `@nestjs/*` 최신 메이저는 12이지만 CLAUDE.md 스택(NestJS 11)에 맞춰 swagger 11 / config 4 / typeorm 11 / schedule 6으로 고정
+- **변경 파일**: `package.json`, `package-lock.json`, `tsconfig.json`, `tsconfig.build.json`, `nest-cli.json`, `eslint.config.mjs`, `.prettierrc`, `.editorconfig`, `.gitattributes`, `.gitignore`, `.env.example`, `docker-compose.yml`, `src/main.ts`, `src/app.module.ts`, `src/common/config/database.config.ts`, `README.md`
+- **남은 작업 / 주의**: 에러 코드·`BusinessException`·전역 예외 필터, 금액 bigint transformer, 기본 거부 전역 가드(`@ServiceApi`/`@AdminApi`/`@Public`)는 다음 커밋에서. 스키마 변경 후 로컬 DB는 `docker compose down -v`로 재생성 필요
+
 #### docs: 설계 문서 및 DB 스키마 초기 반영
 - **무엇을**: 개인 레포에 CLAUDE.md, CHANGELOG.md, DB 스키마를 최초 반영. `payment-hub.sql` → `db/schema.sql`로 이동, 헤더 주석의 구 명칭(`payment-ledger v2`)을 `payment-hub`로 정정
 - **왜**: CLAUDE.md가 스키마 SSOT 경로를 `db/schema.sql`로 명시하고 있어 실제 위치를 문서와 일치시킴. 프로젝트명을 하나로 통일

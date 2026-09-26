@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: payment-hub-postgres
+    environment:
+      POSTGRES_USER: payment_hub
+      POSTGRES_PASSWORD: payment_hub
+      POSTGRES_DB: payment_hub
+      TZ: UTC
+    ports:
+      - '5432:5432'
+    volumes:
+      # 최초 기동(빈 볼륨) 시에만 실행된다. 스키마 변경 후엔 `docker compose down -v`로 초기화
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U payment_hub -d payment_hub']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
