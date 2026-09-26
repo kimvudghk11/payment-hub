@@ -1,4 +1,8 @@
-import { OutboxEventType, WebhookDeliveryStatus } from '../../src/outbox/constants/outbox.constants';
+import {
+  OutboxEventType,
+  WEBHOOK_MAX_ATTEMPTS,
+  WebhookDeliveryStatus,
+} from '../../src/outbox/constants/outbox.constants';
 import { OutboxEvent } from '../../src/outbox/domain/outbox-event.entity';
 import { WebhookDelivery } from '../../src/outbox/domain/webhook-delivery.entity';
 import { Order } from '../../src/order/domain/order.entity';
@@ -66,6 +70,110 @@ describe('WebhookDelivery.pending', () => {
       attemptCount: 0,
       nextAttemptAt: now,
       lockedUntil: null,
+    });
+  });
+});
+
+describe('WebhookDelivery — 전달 시도 상태', () => {
+  const LEASE_MS = 60_000;
+  const t0 = new Date('2026-09-27T02:00:00.000Z');
+  const at = (ms: number) => new Date(t0.getTime() + ms);
+  const pending = () =>
+    WebhookDelivery.pending(
+      OutboxEvent.forPayment(OutboxEventType.PAYMENT_CONFIRMED, payment, order, now),
+      'https://a',
+    );
+
+  describe('claim — 워커가 전달할 건을 획득', () => {
+    it('PENDING → PROCESSING, 시도 횟수 +1, 임대 만료 시각까지 다른 워커가 못 가져간다', () => {
+      const delivery = pending();
+      delivery.claim(t0, LEASE_MS);
+
+      expect(delivery).toMatchObject({
+        status: WebhookDeliveryStatus.PROCESSING,
+        attemptCount: 1,
+        lockedUntil: at(LEASE_MS),
+        // 획득 조건(next_attempt_at <= now)을 인덱스 하나로 처리하려고 임대 만료 시각을 함께 둔다
+        nextAttemptAt: at(LEASE_MS),
+      });
+    });
+
+    it('처리 중 워커가 죽어 임대가 만료된 건은 다시 획득할 수 있다', () => {
+      const delivery = pending();
+      delivery.claim(t0, LEASE_MS);
+      delivery.claim(at(LEASE_MS), LEASE_MS);
+      expect(delivery.attemptCount).toBe(2);
+    });
+
+    it('임대가 남은 건, 끝난 건(SUCCEEDED·DEAD)은 획득할 수 없다', () => {
+      const processing = pending();
+      processing.claim(t0, LEASE_MS);
+      expect(() => processing.claim(at(1000), LEASE_MS)).toThrow('PROCESSING');
+
+      const succeeded = pending();
+      succeeded.claim(t0, LEASE_MS);
+      succeeded.markSucceeded(200, at(10));
+      expect(() => succeeded.claim(at(LEASE_MS * 10), LEASE_MS)).toThrow('SUCCEEDED');
+    });
+  });
+
+  describe('결과 기록', () => {
+    it('2xx → SUCCEEDED, 전달 시각·응답 코드 기록, 임대 해제', () => {
+      const delivery = pending();
+      delivery.claim(t0, LEASE_MS);
+      delivery.markSucceeded(204, at(300));
+
+      expect(delivery).toMatchObject({
+        status: WebhookDeliveryStatus.SUCCEEDED,
+        deliveredAt: at(300),
+        lastHttpStatus: 204,
+        lastError: null,
+        lockedUntil: null,
+      });
+    });
+
+    it('실패 → RETRYING, 다음 시도는 지수 백오프 (1분, 2분, 4분 … 최대 1시간)', () => {
+      const delivery = pending();
+      const delays: number[] = [];
+      let clock = t0;
+      for (let attempt = 1; attempt <= 8; attempt++) {
+        delivery.claim(clock, LEASE_MS);
+        delivery.markFailed({ httpStatus: 500, error: 'HTTP 500' }, clock);
+        delays.push((delivery.nextAttemptAt.getTime() - clock.getTime()) / 60_000);
+        clock = delivery.nextAttemptAt;
+      }
+
+      expect(delays).toEqual([1, 2, 4, 8, 16, 32, 60, 60]);
+      expect(delivery).toMatchObject({
+        status: WebhookDeliveryStatus.RETRYING,
+        lastHttpStatus: 500,
+        lastError: 'HTTP 500',
+        lockedUntil: null,
+      });
+    });
+
+    it(`${WEBHOOK_MAX_ATTEMPTS}번째 시도까지 실패하면 DEAD — 관리자 재전송 대상`, () => {
+      const delivery = pending();
+      let clock = t0;
+      for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt++) {
+        delivery.claim(clock, LEASE_MS);
+        delivery.markFailed({ httpStatus: null, error: 'ECONNREFUSED' }, clock);
+        clock = delivery.nextAttemptAt;
+      }
+
+      expect(delivery.status).toBe(WebhookDeliveryStatus.DEAD);
+      expect(delivery.attemptCount).toBe(WEBHOOK_MAX_ATTEMPTS);
+    });
+
+    it('에러 메시지는 1000자로 자른다 (응답 본문 전체를 저장하지 않음)', () => {
+      const delivery = pending();
+      delivery.claim(t0, LEASE_MS);
+      delivery.markFailed({ httpStatus: 400, error: 'x'.repeat(5000) }, t0);
+      expect(delivery.lastError).toHaveLength(1000);
+    });
+
+    it('PROCESSING이 아니면 결과를 기록할 수 없다', () => {
+      expect(() => pending().markSucceeded(200, t0)).toThrow('PENDING');
     });
   });
 });

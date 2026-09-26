@@ -6,6 +6,15 @@
 
 ### 2026-09-27
 
+#### feat(outbox): 웹훅 전달 상태 전이(획득·성공·재시도 백오프·DEAD) 도메인 추가
+- **무엇을**: `WebhookDelivery.claim/markSucceeded/markFailed`. 획득 시 `PROCESSING` + 시도 횟수 +1 + 임대(`locked_until`), 실패 시 1분 × 2^(n−1)(최대 1시간) 뒤 `RETRYING`, 10번째 실패면 `DEAD`. 에러 메시지 1000자 제한. 상수 `WEBHOOK_MAX_ATTEMPTS` 등
+- **왜**:
+  - 워커가 전송 중 죽어도 임대 만료 후 다른 워커가 다시 가져가야 함 (전달 누락 방지)
+  - 획득 시 `next_attempt_at`을 임대 만료 시각으로 옮겨, 대기·재시도·임대 만료 건을 `status IN (...) AND next_attempt_at <= now` 조건 하나(기존 `ix_tb_webhook_delivery_due` 인덱스)로 찾게 함
+  - 서비스 장애가 길어져도 재시도가 폭주하지 않게 지수 백오프, 무한 재시도 대신 한도 후 `DEAD` → 운영자가 원인 해결 후 재전송
+- **변경 파일**: `src/outbox/domain/webhook-delivery.entity.ts`, `src/outbox/constants/outbox.constants.ts`, `test/outbox/outbox-event.entity.spec.ts`
+- **남은 작업 / 주의**: 실제 발송 워커는 다음 커밋
+
 #### feat(payment): 결제 승인 API(토스 연동·원장 기장·outbox) 및 결제 조회·환불 가능 금액 API 추가
 - **무엇을**:
   - `POST /payments/confirm`: (tx1) 주문 행 락 → paymentKey 재요청·살아있는 결제 확인 → 주문 검증(상태·만료·금액) → 결제 `IN_PROGRESS` 선기록 → 토스 승인(트랜잭션 밖) → (tx2) 결과 반영 + 주문 `PAID` + 원장 `PAYMENT_CAPTURED`(차 PG_RECEIVABLE / 대 REVENUE) + outbox 이벤트·웹훅 전달 대상(`PENDING`, URL 스냅샷)

@@ -24,3 +24,9 @@ export const OutboxAggregateType = {
   PAYMENT: 'PAYMENT',
   PAYMENT_CANCEL: 'PAYMENT_CANCEL',
 } as const;
+
+/** 이 횟수까지 실패하면 DEAD (관리자 재전송 대상). 백오프 1·2·4·…분, 최대 1시간 → 약 4시간 동안 재시도 */
+export const WEBHOOK_MAX_ATTEMPTS = 10;
+export const WEBHOOK_RETRY_BASE_DELAY_MS = 60_000;
+export const WEBHOOK_RETRY_MAX_DELAY_MS = 60 * 60_000;
+export const WEBHOOK_LAST_ERROR_MAX_LENGTH = 1000;
