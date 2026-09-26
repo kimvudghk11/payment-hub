@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
 import { Transactional } from 'typeorm-transactional';
+import { BillingKey } from '../billing-key/domain/billing-key.entity';
 import { EncryptionService } from '../common/crypto/encryption.service';
 import { BusinessException } from '../common/errors/business.exception';
 import { ErrorCode } from '../common/errors/error-code';
@@ -13,10 +14,19 @@ import { hubErrorForTossRejection } from '../pg/toss-error';
 import { TossPaymentsClient, TossResult } from '../pg/toss-payments.client';
 import { ServiceService } from '../service/service.service';
 import { PaymentStatus } from './constants/payment.constants';
-import { Payment } from './domain/payment.entity';
+import { BILLING_IDEMPOTENCY_PREFIX, Payment } from './domain/payment.entity';
 import { ListPaymentsQueryDto } from './dto/request/list-payments.query.dto';
 import { searchPayments } from './payment-search';
 import { PaymentOutcomeService } from './payment-outcome.service';
+
+export interface BillingPaymentCommand {
+  serviceId: string;
+  orderId: string;
+  billingKeyId: string;
+  amount: number;
+  /** 서비스가 정한 멱등키 (구독ID-회차 등). 최대 90자 */
+  idempotencyKey: string;
+}
 
 export interface ConfirmPaymentCommand {
   serviceId: string;
@@ -50,6 +60,7 @@ export class PaymentService {
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
     @InjectRepository(OrderItem) private readonly orderItems: Repository<OrderItem>,
+    @InjectRepository(BillingKey) private readonly billingKeys: Repository<BillingKey>,
     private readonly serviceService: ServiceService,
     private readonly encryption: EncryptionService,
     private readonly toss: TossPaymentsClient,
@@ -75,6 +86,33 @@ export class PaymentService {
       orderId: payment.orderId,
       amount: payment.amount,
       idempotencyKey: payment.idempotencyKey,
+    });
+    const view = await this.applyConfirmResult(payment.paymentId, result);
+    return this.settle(view, result);
+  }
+
+  /**
+   * 빌링키 자동결제. 서비스 배치가 정한 idempotencyKey로 재시도를 식별한다 (같은 내용이면 기록된 결과, 다르면 409).
+   * 흐름은 승인과 같다: (tx1) 주문 락 → 검증 → IN_PROGRESS 선기록 → 토스 자동결제 → (tx2) 결과 반영 + 원장 + outbox.
+   * 토스 멱등키는 결제 건 단위(billing:<paymentId>)로 고정한다.
+   */
+  async chargeBilling(command: BillingPaymentCommand): Promise<PaymentView> {
+    const credential = await this.serviceService.getActivePgCredential(command.serviceId);
+    const secretKey = this.encryption.decrypt(credential.secretKeyEnc, credential.secretKeyId);
+
+    const started = await this.startBilling(command, new Date());
+    if (started.replayed) return this.replay(started.view);
+
+    const { payment, order } = started.view;
+    const billingKey = started.billingKey;
+    const result = await this.toss.chargeBilling({
+      secretKey,
+      billingKey: this.encryption.decrypt(billingKey.billingKeyEnc, billingKey.billingKeyKeyId),
+      customerKey: billingKey.customerKey,
+      amount: payment.amount,
+      orderId: order.orderId,
+      orderName: order.orderName,
+      idempotencyKey: 'billing:' + payment.paymentId,
     });
     const view = await this.applyConfirmResult(payment.paymentId, result);
     return this.settle(view, result);
@@ -132,17 +170,60 @@ export class PaymentService {
       return { view: { payment: previous, order }, replayed: true };
     }
 
+    await this.assertNoLivePayment(order);
+    order.assertConfirmable(command.amount, now);
+    const payment = Payment.startConfirm({ order, paymentKey: command.paymentKey });
+    await this.payments.save(payment);
+    return { view: { payment, order }, replayed: false };
+  }
+
+  @Transactional()
+  private async startBilling(
+    command: BillingPaymentCommand,
+    now: Date,
+  ): Promise<{ view: PaymentView; replayed: boolean; billingKey: BillingKey }> {
+    const order = await this.orders.findOne({
+      where: { orderId: command.orderId, serviceId: command.serviceId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!order) throw new BusinessException(ErrorCode.ORDER_NOT_FOUND);
+
+    const billingKey = await this.billingKeys.findOneBy({
+      billingKeyId: command.billingKeyId,
+      serviceId: command.serviceId,
+    });
+    const previous = await this.payments.findOneBy({
+      serviceId: command.serviceId,
+      idempotencyKey: BILLING_IDEMPOTENCY_PREFIX + command.idempotencyKey,
+    });
+    if (previous) {
+      if (!previous.matchesBilling(command)) throw new BusinessException(ErrorCode.PAYMENT_IDEMPOTENCY_CONFLICT);
+      if (!billingKey) throw new BusinessException(ErrorCode.BILLING_KEY_NOT_FOUND);
+      return { view: { payment: previous, order }, replayed: true, billingKey };
+    }
+
+    // 다른 서비스·다른 사용자·해제된 수단은 모두 404 (존재 숨김)
+    if (!billingKey?.usableBy(order.externalUserId)) throw new BusinessException(ErrorCode.BILLING_KEY_NOT_FOUND);
+    await this.assertNoLivePayment(order);
+    order.assertConfirmable(command.amount, now);
+
+    const payment = Payment.startBilling({
+      order,
+      billingKeyId: billingKey.billingKeyId,
+      idempotencyKey: command.idempotencyKey,
+    });
+    await this.payments.save(payment);
+    return { view: { payment, order }, replayed: false, billingKey };
+  }
+
+  /** 한 주문에 살아있는 결제는 하나 — 처리 중이면 409 PAYMENT_IN_PROGRESS, 이미 결제됐으면 409 ORDER_ALREADY_PAID */
+  private async assertNoLivePayment(order: Order): Promise<void> {
     const live = await this.payments.findOneBy({ orderId: order.orderId, status: Not(In(DEAD_STATUSES)) });
     if (live) {
       throw PENDING_RESULT_STATUSES.has(live.status)
         ? new BusinessException(ErrorCode.PAYMENT_IN_PROGRESS, { paymentId: live.paymentId })
         : new BusinessException(ErrorCode.ORDER_ALREADY_PAID);
     }
-
-    order.assertConfirmable(command.amount, now);
-    const payment = Payment.startConfirm({ order, paymentKey: command.paymentKey });
-    await this.payments.save(payment);
-    return { view: { payment, order }, replayed: false };
   }
 
   /**

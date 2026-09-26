@@ -384,6 +384,7 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 | `ORDER_IDEMPOTENCY_CONFLICT` | 409 | 같은 주문번호로 다른 내용의 주문이 이미 존재합니다. |
 | `PAYMENT_NOT_FOUND` | 404 | 결제 내역을 찾을 수 없습니다. |
 | `PAYMENT_AMOUNT_MISMATCH` | 400 | 결제 금액이 주문 금액과 일치하지 않습니다. |
+| `PAYMENT_IDEMPOTENCY_CONFLICT` | 409 | 같은 멱등키로 다른 내용의 결제 요청이 이미 존재합니다. |
 | `PAYMENT_IN_PROGRESS` | 409 | 결제가 처리 중입니다. 잠시 후 결과를 확인해주세요. |
 | `PAYMENT_REJECTED` | 402 | 결제 대행사가 결제를 승인하지 않았습니다. |
 | `PAYMENT_NOT_CANCELABLE` | 409 | 취소할 수 없는 결제 상태입니다. |

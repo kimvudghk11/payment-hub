@@ -39,7 +39,7 @@
 | 주문 등록·조회 | `POST /orders`, `GET /orders`, `GET /orders/:id` | ✅ |
 | 결제 승인·조회 | `POST /payments/confirm`, `GET /payments`, `GET /payments/:id`, `GET /payments/:id/refundable` | ✅ |
 | 환불 | `POST /payments/:id/cancel` | ✅ |
-| 정기결제·빌링키 | `POST /payments/billing`, `/billing-keys` | 🚧 |
+| 정기결제·빌링키 | `POST /payments/billing`, `/billing-keys` | ✅ |
 | 웹훅 발송 | hub → 서비스 (`PAYMENT_CONFIRMED`·`PAYMENT_WAITING_FOR_DEPOSIT`·`PAYMENT_FAILED`) | ✅ |
 
 ---
@@ -119,7 +119,7 @@ Content-Type: application/json
 |---|---|---|
 | 주문 등록 | `externalOrderId` | 같은 내용이면 기존 주문 `200` (새로 만들면 `201`) / 다르면 `409` |
 | 결제 승인 | `paymentKey` | 기록된 결과 (성공·실패 모두. 토스를 다시 부르지 않음) |
-| 자동결제 🚧 | `idempotencyKey` | 기존 결과 |
+| 자동결제 | `idempotencyKey` | 같은 내용이면 기록된 결과, 다르면 `409 PAYMENT_IDEMPOTENCY_CONFLICT` |
 | 환불 | `idempotencyKey` | 같은 내용이면 기록된 결과, 다르면 `409 CANCEL_IDEMPOTENCY_CONFLICT` |
 
 권장: 타임아웃 10초, 5xx·네트워크 오류는 지수 백오프로 최대 3회 재시도, 4xx는 재시도하지 않는다.
@@ -305,9 +305,26 @@ const refundable = await paymentHub.getRefundable(paymentId);              // �
 
 ## 6. 정기결제·환불
 
-환불 ✅ · 정기결제 🚧.
+환불 ✅ · 정기결제 ✅.
 
-- **정기결제**: 사용자 카드 등록(빌링키) → 서비스 배치가 결제일·재시도를 판단 → `POST /orders` → `POST /payments/billing { orderId, billingKeyId, idempotencyKey }`. 멱등키는 `구독ID-결제회차`처럼 재시도에도 같은 값
+- **정기결제** ✅
+
+```ts
+// 1) 카드 등록: 토스 카드 등록창(customerKey = 사용자별 추측 불가능한 값) → successUrl의 authKey
+const card = await paymentHub.issueBillingKey({ externalUserId: user.id, customerKey, authKey });
+
+// 2) 서비스 배치(결제일): 금액 계산 → 주문 등록 → 자동결제
+const { order } = await paymentHub.createOrder({ externalOrderId: sub.id + '-' + cycle, externalSubscriptionId: sub.id, ... });
+const payment = await paymentHub.chargeBilling({
+  orderId: order.orderId,
+  billingKeyId: card.billingKeyId,
+  amount: order.totalAmount,
+  idempotencyKey: sub.id + '-' + cycle,   // 재시도에도 같은 값
+});
+```
+
+  - 재시도 정책(며칠 뒤 다시 시도 등)은 서비스가 정한다. 카드 거절 후 다시 시도할 때는 새 idempotencyKey를 쓴다
+  - 사용자가 카드를 바꾸면 새로 등록하고, 이전 수단은 `revokeBillingKey`로 해제한다
 - **환불** ✅: 환불 가능 금액 확인 → 서비스가 금액 계산(일할 등) → 환불 요청
 
 ```ts

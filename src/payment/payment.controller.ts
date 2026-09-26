@@ -5,6 +5,7 @@ import { CurrentServiceId } from '../common/decorators/current-actor.decorator';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { IPageable } from '../common/interceptors/response.interceptor';
 import { ConfirmPaymentRequestDto } from './dto/request/confirm-payment.request.dto';
+import { BillingPaymentRequestDto } from './dto/request/billing-payment.request.dto';
 import { CancelPaymentRequestDto } from './dto/request/cancel-payment.request.dto';
 import { ListPaymentsQueryDto } from './dto/request/list-payments.query.dto';
 import { CancelPaymentResponseDto, PaymentDetailResponseDto } from './dto/response/payment-cancel.response.dto';
@@ -38,6 +39,24 @@ export class PaymentController {
     @Body() dto: ConfirmPaymentRequestDto,
   ): Promise<PaymentResponseDto> {
     const { payment, order } = await this.paymentService.confirm({ serviceId, ...dto });
+    return PaymentResponseDto.from(payment, order);
+  }
+
+  @Post('billing')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '자동결제 (빌링키)',
+    description:
+      '서비스 배치가 주문을 등록한 뒤 호출. 같은 idempotencyKey·같은 내용은 기록된 결과, 다른 내용은 409 PAYMENT_IDEMPOTENCY_CONFLICT. ' +
+      '빌링키가 다른 서비스·다른 사용자·해제된 것이면 404 BILLING_KEY_NOT_FOUND. 결과·에러는 결제 승인과 같다',
+  })
+  @ResponseMessage('결제가 승인되었습니다.')
+  @ApiResponse({ status: 200, type: PaymentResponseDto })
+  async billing(
+    @CurrentServiceId() serviceId: string,
+    @Body() dto: BillingPaymentRequestDto,
+  ): Promise<PaymentResponseDto> {
+    const { payment, order } = await this.paymentService.chargeBilling({ serviceId, ...dto });
     return PaymentResponseDto.from(payment, order);
   }
 

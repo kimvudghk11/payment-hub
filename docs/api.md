@@ -429,7 +429,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
 | `POST` | `/payments/confirm` | 일반 결제 승인 (결제창 인증 후) | ✅ |
-| `POST` | `/payments/billing` | 빌링키 자동결제 | 🚧 |
+| `POST` | `/payments/billing` | 빌링키 자동결제 | ✅ |
 | `GET` | `/payments/:paymentId` | 결제 단건 — 수단 분류, 환불 가능 금액, 실패 사유, 취소 이력(`cancels`) | ✅ |
 | `GET` | `/payments` | 결제 목록 — **사용자별 조회** | ✅ |
 | `GET` | `/payments/:paymentId/refundable` | 환불 가능 금액·항목별 취소 가능 수량 | ✅ |
@@ -563,8 +563,18 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 }
 ```
 
-- 빌링키가 이 서비스·같은 사용자 것이 아니거나 폐기되었으면 `404 BILLING_KEY_NOT_FOUND`
-- 이후 동작·응답은 결제 승인과 같다
+| 필드 | 타입 | 필수 | 규칙 |
+|---|---|---|---|
+| `orderId` | uuid | ✅ | 미리 등록한 주문 |
+| `billingKeyId` | uuid | ✅ | 주문의 사용자와 **같은 사용자**의 활성 수단 |
+| `amount` | integer | ✅ | 주문 결제 금액과 같아야 한다 |
+| `idempotencyKey` | string | ✅ | 최대 90자. `(서비스, idempotencyKey)`가 멱등키 — 재시도에도 같은 값 (예: `구독ID-회차`) |
+
+- 빌링키가 이 서비스·같은 사용자 것이 아니거나 해제되었으면 `404 BILLING_KEY_NOT_FOUND` (토스 호출 없음)
+- 같은 `idempotencyKey`·같은 내용(주문·빌링키·금액) → 기록된 결과, 다른 내용 → `409 PAYMENT_IDEMPOTENCY_CONFLICT`
+- 이후 검증·결과·에러(`402 PAYMENT_REJECTED`, `504 PG_TIMEOUT` …)와 응답(`paymentType: "BILLING"`)은 결제 승인과 같다
+- 카드 거절 후 재시도는 **새 idempotencyKey**로 (실패한 시도는 주문을 막지 않는다)
+- 결과 불명(`UNKNOWN`)이면 대사가 토스 **주문번호 조회**로 확정한다 (자동결제는 응답 전에는 paymentKey가 없음)
 
 #### `GET /payments` — 결제 목록 (사용자별)
 

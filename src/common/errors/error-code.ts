@@ -30,6 +30,7 @@ const ERROR_DEFINITIONS = {
   // 결제·취소
   PAYMENT_NOT_FOUND: { status: 404, message: '결제 내역을 찾을 수 없습니다.' },
   PAYMENT_AMOUNT_MISMATCH: { status: 400, message: '결제 금액이 주문 금액과 일치하지 않습니다.' },
+  PAYMENT_IDEMPOTENCY_CONFLICT: { status: 409, message: '같은 멱등키로 다른 내용의 결제 요청이 이미 존재합니다.' },
   PAYMENT_IN_PROGRESS: { status: 409, message: '결제가 처리 중입니다. 잠시 후 결과를 확인해주세요.' },
   PAYMENT_NOT_CANCELABLE: { status: 409, message: '취소할 수 없는 결제 상태입니다.' },
   CANCEL_AMOUNT_EXCEEDED: { status: 400, message: '환불 가능 금액을 초과했습니다.' },

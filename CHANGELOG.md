@@ -6,6 +6,20 @@
 
 ### 2026-09-27
 
+#### feat(payment): 자동결제 API(POST /payments/billing) 추가
+- **무엇을**:
+  - (tx1) 주문 락 → 멱등 재요청(`billing:<서비스 키>`, 같은 내용이면 기록된 결과·다르면 `409 PAYMENT_IDEMPOTENCY_CONFLICT`) → 빌링키 검증(`usableBy`: 같은 서비스·같은 사용자·활성, 아니면 404) → 살아있는 결제·주문 검증 → `Payment.startBilling` 선기록 → 빌링키 복호화 후 토스 자동결제(멱등키 `billing:<paymentId>`) → (tx2) 결제 승인과 같은 결과 반영·원장·outbox
+  - 대사: paymentKey가 없는 결제(응답 전에 결과를 모르게 된 자동결제)는 토스 주문번호 조회로 확정, 응답의 paymentKey를 채움. 토스 응답 검증은 paymentKey가 있을 때만 키까지 비교
+  - 살아있는 결제 검사를 `assertNoLivePayment`로 추출해 승인·자동결제가 공유
+  - 에러 코드 `PAYMENT_IDEMPOTENCY_CONFLICT`(409). 예제 `chargeBilling`, api.md 3.3, 서비스 가이드 정기결제 예제, README, OpenAPI
+- **왜**:
+  - 정기결제 서비스의 결제 경로. 결제일·재시도 판단은 서비스, hub는 요청받은 결제만 (CLAUDE.md 2장)
+  - 서비스 멱등키로 배치 재시도를 흡수하고, 토스 멱등키는 결제 건 단위로 고정해 토스 쪽 이중 결제도 막음
+  - 다른 사용자의 빌링키로 결제되는 사고를 막음 (DB는 서비스 소유권만 강제)
+- **변경 파일**: `src/payment/{payment.service,payment.controller,payment-reconciler,payment.module}.ts`, `src/payment/dto/request/billing-payment.request.dto.ts`, `src/common/errors/error-code.ts`, `examples/service-client.ts`, `test/payment/payment-billing.int-spec.ts`, `test/common/error-code.spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`, `CLAUDE.md`, `README.md`
+- **스키마/에러 코드**: `PAYMENT_IDEMPOTENCY_CONFLICT` 추가
+- **문서**: CLAUDE.md 8장 에러 코드 표
+
 #### feat(billing-key): 결제 수단(빌링키) 등록·목록·해제 API 추가
 - **무엇을**: `POST /billing-keys`(토스 발급 → 암호화 저장, 201), `GET /billing-keys?externalUserId=`(활성 수단, 최근 순), `DELETE /billing-keys/:id`(REVOKED, 멱등, 다른 서비스 수단은 404). 에러 코드 `BILLING_KEY_REJECTED`(402). 예제 `issueBillingKey`·`listBillingKeys`·`revokeBillingKey`, api.md 3.5, OpenAPI
 - **왜**:

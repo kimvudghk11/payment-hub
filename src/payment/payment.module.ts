@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BillingKey } from '../billing-key/domain/billing-key.entity';
 import { LedgerModule } from '../ledger/ledger.module';
 import { Order } from '../order/domain/order.entity';
 import { OrderItem } from '../order/domain/order-item.entity';
@@ -18,7 +19,7 @@ import { PaymentService } from './payment.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Payment, PaymentCancel, PaymentCancelItem, Order, OrderItem]),
+    TypeOrmModule.forFeature([Payment, PaymentCancel, PaymentCancelItem, Order, OrderItem, BillingKey]),
     ServiceModule,
     PgModule,
     LedgerModule,

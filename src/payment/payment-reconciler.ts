@@ -115,14 +115,14 @@ export class PaymentReconciler {
     return this.apply(paymentId, await this.lookup(payment), onResolved);
   }
 
+  /** paymentKey가 있으면 그것으로, 없으면(응답 전에 결과를 모르게 된 자동결제) 주문번호로 조회 */
   private async lookup(payment: Payment): Promise<TossResult | null> {
-    if (!payment.providerPaymentKey) return null;
     try {
       const credential = await this.serviceService.getActivePgCredential(payment.serviceId);
-      return await this.toss.getPayment({
-        secretKey: this.encryption.decrypt(credential.secretKeyEnc, credential.secretKeyId),
-        paymentKey: payment.providerPaymentKey,
-      });
+      const secretKey = this.encryption.decrypt(credential.secretKeyEnc, credential.secretKeyId);
+      return payment.providerPaymentKey
+        ? await this.toss.getPayment({ secretKey, paymentKey: payment.providerPaymentKey })
+        : await this.toss.getPaymentByOrderId({ secretKey, orderId: payment.orderId });
     } catch (error) {
       if (error instanceof BusinessException) return null; // 활성 토스 키 없음 — 운영자가 키를 등록하면 다음 대사에서 확정
       throw error;
@@ -164,7 +164,7 @@ export class PaymentReconciler {
   /** 토스 응답이 정말 이 결제의 것인지. 다르면 믿지 않고 UNKNOWN으로 남겨 사람이 본다 */
   private belongsTo(response: TossPayment, payment: Payment): boolean {
     const matches =
-      response.paymentKey === payment.providerPaymentKey &&
+      (payment.providerPaymentKey === null || response.paymentKey === payment.providerPaymentKey) &&
       response.orderId === payment.orderId &&
       response.totalAmount === payment.amount;
     if (!matches && ['DONE', 'WAITING_FOR_DEPOSIT'].includes(response.status)) {

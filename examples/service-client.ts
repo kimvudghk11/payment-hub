@@ -284,6 +284,20 @@ export class PaymentHubServiceClient {
     return (await this.call<BillingKey>('POST', '/billing-keys', input, undefined, PG_CALL_TIMEOUT_MS)).data;
   }
 
+  /**
+   * 자동결제. 서비스 배치가 결제일·재시도 정책을 판단하고, 주문을 등록한 뒤 호출한다.
+   * idempotencyKey는 "구독ID-결제회차"처럼 재시도에도 같은 값 → 네트워크 오류·타임아웃이면 그대로 다시 호출하면 된다.
+   * 카드 거절(PAYMENT_REJECTED)을 다음 날 다시 시도할 때는 새 회차 키(예: sub-77-2026-10-retry1)를 쓴다.
+   */
+  async chargeBilling(input: {
+    orderId: string;
+    billingKeyId: string;
+    amount: number;
+    idempotencyKey: string;
+  }): Promise<Payment> {
+    return (await this.call<Payment>('POST', '/payments/billing', input, undefined, PG_CALL_TIMEOUT_MS)).data;
+  }
+
   /** 사용자의 활성 결제 수단 */
   async listBillingKeys(externalUserId: string): Promise<Page<BillingKey>> {
     return (await this.call<Page<BillingKey>>('GET', '/billing-keys', undefined, { externalUserId })).data;

@@ -456,6 +456,44 @@
         ]
       }
     },
+    "/api/v1/payments/billing": {
+      "post": {
+        "description": "서비스 배치가 주문을 등록한 뒤 호출. 같은 idempotencyKey·같은 내용은 기록된 결과, 다른 내용은 409 PAYMENT_IDEMPOTENCY_CONFLICT. 빌링키가 다른 서비스·다른 사용자·해제된 것이면 404 BILLING_KEY_NOT_FOUND. 결과·에러는 결제 승인과 같다",
+        "operationId": "PaymentController_billing",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BillingPaymentRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service-api-key": []
+          }
+        ],
+        "summary": "자동결제 (빌링키)",
+        "tags": [
+          "서비스 API — 결제"
+        ]
+      }
+    },
     "/api/v1/payments": {
       "get": {
         "description": "자기 서비스 결제만. externalUserId(사용자별 이력)·externalOrderId·externalSubscriptionId·상태(쉼표 여러 개)·수단·기간 필터, 최신순 cursor 페이징. 실패한 시도도 포함",
@@ -3113,6 +3151,36 @@
           "approvedAt",
           "failure",
           "createdAt"
+        ]
+      },
+      "BillingPaymentRequestDto": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "description": "미리 등록한 주문 ID",
+            "example": "5b7c0000-0000-4000-8000-000000000001"
+          },
+          "billingKeyId": {
+            "type": "string",
+            "description": "결제 수단 ID (POST /billing-keys 응답). 주문의 사용자와 같은 사용자의 활성 수단"
+          },
+          "amount": {
+            "type": "number",
+            "description": "결제 금액. 주문 결제 금액과 같아야 한다",
+            "example": 29000
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "멱등키 (최대 90자). 재시도에도 같은 값 — 예: 구독ID-결제회차",
+            "example": "svc-a-billing-sub-77-2026-10"
+          }
+        },
+        "required": [
+          "orderId",
+          "billingKeyId",
+          "amount",
+          "idempotencyKey"
         ]
       },
       "PaymentPageResponseDto": {

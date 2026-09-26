@@ -25,7 +25,8 @@ describe('ErrorCode', () => {
     expect(ErrorCode.CANCEL_AMOUNT_EXCEEDED.status).toBe(400);
     expect(ErrorCode.PG_TIMEOUT.status).toBe(504);
     expect(ErrorCode.INTERNAL_ERROR.message).toBe('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-    expect(Object.keys(ErrorCode)).toHaveLength(31);
+    expect(Object.keys(ErrorCode)).toHaveLength(32);
+    expect(ErrorCode.PAYMENT_IDEMPOTENCY_CONFLICT.status).toBe(409);
     expect(ErrorCode.BILLING_KEY_REJECTED.status).toBe(402);
     expect(ErrorCode.CANCEL_IDEMPOTENCY_CONFLICT.status).toBe(409);
     expect(ErrorCode.CANCEL_IN_PROGRESS.status).toBe(409);

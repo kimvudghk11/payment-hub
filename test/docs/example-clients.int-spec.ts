@@ -234,6 +234,46 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(await client.listBillingKeys('user-1')).toMatchObject({ data: [] });
   });
 
+  it('정기결제: 카드 등록 → (배치) 주문 등록 → 자동결제, 재시도는 같은 멱등키로 같은 결과', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    toss.respond((request) =>
+      request.path === '/v1/billing/authorizations/issue'
+        ? { status: 200, body: { customerKey: request.body.customerKey, billingKey: 'bk_secret', cardCompany: '신한' } }
+        : {
+            status: 200,
+            body: {
+              paymentKey: `tbill_${String(request.body.orderId)}`,
+              orderId: request.body.orderId,
+              status: 'DONE',
+              method: '카드',
+              totalAmount: request.body.amount,
+              currency: 'KRW',
+              approvedAt: '2026-10-01T09:00:00+09:00',
+              card: { issuerCode: '41', number: '9410****', installmentPlanMonths: 0, cardType: '신용' },
+            },
+          },
+    );
+    const card = await client.issueBillingKey({
+      externalUserId: 'user-1',
+      customerKey: 'c_user1_sub',
+      authKey: 'bln_2',
+    });
+
+    const { order } = await client.createOrder(orderInput('ex-sub-77-2026-10'));
+    const input = {
+      orderId: order.orderId,
+      billingKeyId: card.billingKeyId,
+      amount: 10000,
+      idempotencyKey: 'sub-77-2026-10',
+    };
+    const paid = await client.chargeBilling(input);
+    const retried = await client.chargeBilling(input);
+
+    expect(paid).toMatchObject({ paymentType: 'BILLING', status: 'DONE', method: { type: 'CARD' } });
+    expect(retried.paymentId).toBe(paid.paymentId);
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });
