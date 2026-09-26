@@ -6,6 +6,14 @@
 
 ### 2026-09-27
 
+#### feat(payment): 환불 대사 추가 — 결과 불명·멈춘 취소를 같은 멱등키로 토스에 재확인
+- **무엇을**: `PaymentCancelService.resolvePending(cancelId)` — REQUESTED·UNKNOWN 취소를 원래와 같은 `Idempotency-Key`(`cancel:<paymentCancelId>`)·금액·사유로 토스에 다시 보내고 결과를 기존 반영 로직(결제·주문·원장·outbox)으로 확정. 여전히 모르면 `updated_at`만 갱신. `PaymentReconciler.reconcileCancelsDue()`(2분 이상 지난 것, 오래된 순), 대사 스케줄러가 결제 → 환불 순서로 실행. 토스 호출부를 `callToss`로 추출
+- **왜**:
+  - 결과 불명 환불이 풀리지 않으면 그 금액이 환불 가능 금액에서 영원히 빠져 있음
+  - 결제 대사처럼 조회로 매칭하면 "어느 토스 취소가 이 요청인지"를 금액·시각으로 추측해야 함. 토스 멱등키 재사용은 "처리됐으면 원래 결과, 아니면 지금 처리"를 보장하므로 추측이 필요 없음 — 요청된 환불은 이미 검증을 통과한 것이라 늦게 처리돼도 맞는 결과
+  - 한계: 가상계좌 환불 계좌는 저장하지 않으므로(개인정보) 토스에 도달하지 못한 가상계좌 환불은 대사에서 거절되고 금액이 풀림 → 서비스가 재요청
+- **변경 파일**: `src/payment/{payment-cancel.service,payment-reconciler,payment-reconcile.scheduler}.ts`, `test/payment/cancel-reconcile.int-spec.ts`, `docs/api.md`, `README.md`
+
 #### feat(outbox): 이벤트 재조회 API(GET /events) 추가
 - **무엇을**:
   - `GET /events?after=<eventId>&limit=` — 자기 서비스 이벤트를 발행 순서 `(occurred_at, id)`대로, 웹훅 본문과 같은 형태로. `nextCursor`는 다음 조회의 `after`. 다른 서비스 eventId면 404

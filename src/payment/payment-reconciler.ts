@@ -8,8 +8,10 @@ import { Order } from '../order/domain/order.entity';
 import { TossPayment } from '../pg/toss-payment.types';
 import { TossPaymentsClient, TossResult } from '../pg/toss-payments.client';
 import { ServiceService } from '../service/service.service';
-import { PaymentStatus } from './constants/payment.constants';
+import { PaymentCancelStatus, PaymentStatus } from './constants/payment.constants';
+import { PaymentCancel } from './domain/payment-cancel.entity';
 import { Payment } from './domain/payment.entity';
+import { PaymentCancelService } from './payment-cancel.service';
 import { PaymentOutcomeService } from './payment-outcome.service';
 
 /**
@@ -43,6 +45,8 @@ export class PaymentReconciler {
     private readonly encryption: EncryptionService,
     private readonly toss: TossPaymentsClient,
     private readonly outcome: PaymentOutcomeService,
+    @InjectRepository(PaymentCancel) private readonly cancels: Repository<PaymentCancel>,
+    private readonly cancelService: PaymentCancelService,
   ) {}
 
   async reconcileDue(now: Date = new Date(), limit: number = RECONCILE_BATCH_SIZE): Promise<ReconcileResult> {
@@ -59,6 +63,24 @@ export class PaymentReconciler {
     for (const candidate of candidates) {
       const result = await this.lookup(candidate);
       if ((await this.apply(candidate.paymentId, result)).resolved) resolved += 1;
+    }
+    return { checked: candidates.length, resolved };
+  }
+
+  /** 환불 대사: 2분 이상 지난 REQUESTED·UNKNOWN 취소를 같은 멱등키로 토스에 다시 확인 (PaymentCancelService.resolvePending) */
+  async reconcileCancelsDue(now: Date = new Date(), limit: number = RECONCILE_BATCH_SIZE): Promise<ReconcileResult> {
+    const candidates = await this.cancels.find({
+      select: { paymentCancelId: true },
+      where: {
+        status: In([PaymentCancelStatus.REQUESTED, PaymentCancelStatus.UNKNOWN]),
+        updatedAt: LessThanOrEqual(new Date(now.getTime() - RECONCILE_MIN_AGE_MS)),
+      },
+      order: { updatedAt: 'ASC' },
+      take: limit,
+    });
+    let resolved = 0;
+    for (const { paymentCancelId } of candidates) {
+      if (await this.cancelService.resolvePending(paymentCancelId)) resolved += 1;
     }
     return { checked: candidates.length, resolved };
   }

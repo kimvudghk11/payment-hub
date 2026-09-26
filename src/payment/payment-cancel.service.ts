@@ -63,17 +63,54 @@ export class PaymentCancelService {
     if (started.replayed) return this.replay(started.view);
 
     const { cancel, payment } = started.view;
-    const result = await this.toss.cancel({
+    const result = await this.callToss(secretKey, payment, cancel, command.refundReceiveAccount);
+    const view = await this.applyCancelResult(cancel.paymentCancelId, result);
+    return this.settle(view, result);
+  }
+
+  /**
+   * 대사: 결과 불명(UNKNOWN)·멈춘(REQUESTED) 취소를 **같은 멱등키**로 토스에 다시 보낸다.
+   * 토스는 같은 키면 처음 결과를 돌려주고, 처음 요청이 도달하지 않았으면 지금 처리한다 — 어느 쪽이든 요청된 환불이 한 번 반영된다.
+   * 가상계좌 환불 계좌는 저장하지 않으므로, 토스에 도달하지 못한 가상계좌 환불은 거절(FAILED)되고 금액이 풀린다.
+   * @returns 확정했으면 true. 여전히 모르면 updated_at만 갱신해 대사 순서의 뒤로
+   */
+  async resolvePending(paymentCancelId: string): Promise<boolean> {
+    const cancel = await this.cancels.findOneBy({ paymentCancelId });
+    if (!cancel?.isPending) return false;
+    const payment = await this.payments.findOneByOrFail({ paymentId: cancel.paymentId });
+
+    let result: TossResult | null = null;
+    try {
+      const credential = await this.serviceService.getActivePgCredential(payment.serviceId);
+      const secretKey = this.encryption.decrypt(credential.secretKeyEnc, credential.secretKeyId);
+      result = await this.callToss(secretKey, payment, cancel);
+    } catch (error) {
+      if (!(error instanceof BusinessException)) throw error; // 활성 토스 키 없음 — 다음 대사에서
+    }
+
+    if (result) {
+      const view = await this.applyCancelResult(paymentCancelId, result);
+      if (!view.cancel.isPending) return true;
+    }
+    await this.cancels.update({ paymentCancelId }, { updatedAt: new Date() });
+    return false;
+  }
+
+  private callToss(
+    secretKey: string,
+    payment: Payment,
+    cancel: PaymentCancel,
+    refundReceiveAccount?: CancelPaymentCommand['refundReceiveAccount'],
+  ): Promise<TossResult> {
+    return this.toss.cancel({
       secretKey,
       paymentKey: payment.providerPaymentKey ?? '',
       cancelReason: cancel.reasonDetail ?? cancel.reasonCode,
       cancelAmount: cancel.amount,
-      // 취소 건마다 고정 — 같은 취소를 다시 호출해도 토스가 한 번만 처리한다
+      // 취소 건마다 고정 — 같은 취소를 다시 호출해도(재요청·대사) 토스가 한 번만 처리한다
       idempotencyKey: `cancel:${cancel.paymentCancelId}`,
-      refundReceiveAccount: command.refundReceiveAccount,
+      refundReceiveAccount,
     });
-    const view = await this.applyCancelResult(cancel.paymentCancelId, result);
-    return this.settle(view, result);
   }
 
   /**

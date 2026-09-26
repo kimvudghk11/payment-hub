@@ -6,7 +6,7 @@ import { PaymentReconciler } from './payment-reconciler';
 
 const JOB_NAME = 'payment-reconcile';
 
-/** 대사 배치 (기본 1분). RECONCILE_ENABLED=false면 돌지 않는다 */
+/** 대사 배치 (기본 1분): 결제 → 환불 순서. RECONCILE_ENABLED=false면 돌지 않는다 */
 @Injectable()
 export class PaymentReconcileScheduler implements OnApplicationBootstrap, OnApplicationShutdown {
   constructor(
@@ -25,6 +25,7 @@ export class PaymentReconcileScheduler implements OnApplicationBootstrap, OnAppl
       defaultIntervalMs: 60_000,
       run: async () => {
         await this.reconciler.reconcileDue();
+        await this.reconciler.reconcileCancelsDue();
       },
     });
   }
