@@ -148,3 +148,70 @@ describe('TossPaymentsClient.getPayment (대사용 조회)', () => {
     });
   });
 });
+
+describe('TossPaymentsClient.cancel (환불)', () => {
+  const toss = new FakeToss();
+  let client: TossPaymentsClient;
+  const cancelParams = {
+    secretKey: SECRET_KEY,
+    paymentKey: 'tgen_abc',
+    cancelReason: '저장공간 1개 환불',
+    cancelAmount: 3000,
+    idempotencyKey: 'cancel:abc',
+  };
+
+  beforeAll(async () => {
+    client = new TossPaymentsClient({ baseUrl: await toss.start(), timeoutMs: 300 });
+  });
+  afterEach(() => toss.reset());
+  afterAll(() => toss.close());
+
+  it('POST /v1/payments/{paymentKey}/cancel — 취소 사유·금액, Idempotency-Key', async () => {
+    toss.respond(() => ({ status: 200, body: { paymentKey: 'tgen_abc', status: 'PARTIAL_CANCELED', cancels: [] } }));
+    await client.cancel(cancelParams);
+
+    const [request] = toss.requests;
+    expect(request.method).toBe('POST');
+    expect(request.path).toBe('/v1/payments/tgen_abc/cancel');
+    expect(request.headers['idempotency-key']).toBe('cancel:abc');
+    expect(request.body).toEqual({ cancelReason: '저장공간 1개 환불', cancelAmount: 3000 });
+  });
+
+  it('가상계좌 환불 계좌는 토스 형식(bank, accountNumber, holderName)으로 전달만 한다', async () => {
+    toss.respond(() => ({ status: 200, body: { paymentKey: 'tgen_abc', status: 'CANCELED', cancels: [] } }));
+    await client.cancel({
+      ...cancelParams,
+      refundReceiveAccount: { bankCode: '20', accountNumber: '1002123', holderName: '홍길동' },
+    });
+
+    expect(toss.requests[0].body.refundReceiveAccount).toEqual({
+      bank: '20',
+      accountNumber: '1002123',
+      holderName: '홍길동',
+    });
+  });
+
+  it('4xx → REJECTED (취소 불가 금액 등)', async () => {
+    toss.respond(() => ({
+      status: 403,
+      body: { code: 'NOT_CANCELABLE_AMOUNT', message: '취소 할 수 없는 금액 입니다.' },
+    }));
+
+    await expect(client.cancel(cancelParams)).resolves.toMatchObject({
+      outcome: 'REJECTED',
+      code: 'NOT_CANCELABLE_AMOUNT',
+    });
+  });
+
+  it('ALREADY_CANCELED_PAYMENT는 이전 요청으로 이미 취소됐을 수 있으므로 UNKNOWN', async () => {
+    toss.respond(() => ({
+      status: 400,
+      body: { code: 'ALREADY_CANCELED_PAYMENT', message: '이미 취소된 결제 입니다.' },
+    }));
+
+    await expect(client.cancel(cancelParams)).resolves.toMatchObject({
+      outcome: 'UNKNOWN',
+      reason: 'ALREADY_PROCESSED',
+    });
+  });
+});

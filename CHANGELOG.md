@@ -6,6 +6,11 @@
 
 ### 2026-09-27
 
+#### feat(pg): 토스 결제 취소(cancel) 추가
+- **무엇을**: `TossPaymentsClient.cancel` — `POST /v1/payments/{paymentKey}/cancel { cancelReason, cancelAmount, refundReceiveAccount? }` + `Idempotency-Key`. 가상계좌 환불 계좌는 토스 형식(`bank`)으로 바꿔 전달만 함. `ALREADY_CANCELED_PAYMENT`는 `UNKNOWN`으로 분류. `TossPayment.cancels` 타입 추가
+- **왜**: 환불 API의 토스 호출부. 재시도 시 같은 멱등키로 토스 쪽 중복 취소를 막고, "이미 취소됨"은 이전 요청이 성공했을 수 있으므로 실패로 확정하지 않음. 환불 계좌는 개인정보라 저장하지 않음
+- **변경 파일**: `src/pg/{toss-payments.client,toss-payment.types}.ts`, `test/pg/toss-payments.client.spec.ts`
+
 #### feat(ledger): 환불 반대 분개·환불 이벤트(PAYMENT_CANCELED) 도메인 추가
 - **무엇을**: `LedgerTransaction.paymentCanceled(cancel, currency, accounts)` — 차) REFUND / 대) PG_RECEIVABLE, 취소 건 단위(`reference_type = PAYMENT_CANCEL`), 사건 시각은 토스 취소 시각. `OutboxEvent.forPaymentCancel` — 결제 요약(환불 누적 반영) + `cancel { paymentCancelId, amount, reasonCode, canceledAt }`
 - **왜**: 원장은 append-only라 환불은 매출 행을 고치지 않고 반대 분개로 남김(CLAUDE.md 4장 분개 규칙). 취소 건 단위로 기장해 `(transaction_type, reference_type, reference_id)` 유니크가 부분 환불마다 한 번만 기장되게 보장. 서비스는 웹훅의 `cancel`로 어떤 환불 요청이 확정됐는지 알 수 있음

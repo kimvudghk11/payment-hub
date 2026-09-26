@@ -27,6 +27,8 @@ export interface TossPayment {
   transfer?: { bankCode: string } | null;
   easyPay?: { provider: string } | null;
   receipt?: { url: string } | null;
+  /** 취소 이력 (오래된 순). 방금 한 취소는 마지막 항목 */
+  cancels?: { transactionKey: string; cancelAmount: number; canceledAt: string }[] | null;
   /** ABORTED 등 실패한 결제의 사유 */
   failure?: { code: string; message: string } | null;
 }

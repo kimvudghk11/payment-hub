@@ -20,7 +20,7 @@ export type TossResult =
   | { outcome: 'UNKNOWN'; reason: TossUnknownReason; response: Record<string, unknown> | null };
 
 /** 이전 요청이 이미 승인했을 수 있는 코드 — 실패로 확정하면 "돈은 나갔는데 실패 기록"이 된다 */
-const ALREADY_PROCESSED_CODES = new Set(['ALREADY_PROCESSED_PAYMENT']);
+const ALREADY_PROCESSED_CODES = new Set(['ALREADY_PROCESSED_PAYMENT', 'ALREADY_CANCELED_PAYMENT']);
 
 /**
  * 토스페이먼츠 API 클라이언트. 시크릿 키는 호출마다 받는다 (서비스별 자격증명).
@@ -40,6 +40,37 @@ export class TossPaymentsClient {
     return this.request('POST', '/v1/payments/confirm', params.secretKey, {
       idempotencyKey: params.idempotencyKey,
       body: { paymentKey: params.paymentKey, orderId: params.orderId, amount: params.amount },
+    });
+  }
+
+  /**
+   * 결제 취소(전체·부분). https://docs.tosspayments.com/reference#결제-취소
+   * 가상계좌 환불 계좌는 토스에 전달만 하고 hub는 저장하지 않는다.
+   */
+  cancel(params: {
+    secretKey: string;
+    paymentKey: string;
+    cancelReason: string;
+    cancelAmount: number;
+    idempotencyKey: string;
+    refundReceiveAccount?: { bankCode: string; accountNumber: string; holderName: string };
+  }): Promise<TossResult> {
+    const account = params.refundReceiveAccount;
+    return this.request('POST', `/v1/payments/${encodeURIComponent(params.paymentKey)}/cancel`, params.secretKey, {
+      idempotencyKey: params.idempotencyKey,
+      body: {
+        cancelReason: params.cancelReason,
+        cancelAmount: params.cancelAmount,
+        ...(account
+          ? {
+              refundReceiveAccount: {
+                bank: account.bankCode,
+                accountNumber: account.accountNumber,
+                holderName: account.holderName,
+              },
+            }
+          : {}),
+      },
     });
   }
 
