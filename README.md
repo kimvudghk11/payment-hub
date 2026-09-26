@@ -286,6 +286,11 @@ src
 - [x] 대사 배치 (UNKNOWN·멈춘 IN_PROGRESS를 토스 조회로 확정, 응답-기록 불일치는 확정 안 함)
 - [x] 관리자 결제 조회·상세, 운영 큐(실패 웹훅 재전송·수동 대사), 수동 환불 (감사 로그 같은 트랜잭션)
 - [x] 감사 로그 조회, 토스 웹훅 수신 내역, 매출·환불 리포트 (원장 기준, KST 경계)
+- [x] 배치 건 단위 실패 격리 (poison item이 대사·발송·만료를 멈추지 않게)
+- [ ] 실제 토스 테스트 키로 연동 검증 (지금은 공식 문서 규격의 가짜 토스 서버로 검증)
+- [ ] PG 정산 기장(`PG_SETTLED`: 입금·수수료) — 토스 정산 조회 연동 필요
+- [ ] 결제 수단별 매출 리포트, 토스 쪽 빌링키 삭제
+- [ ] 운영 준비: 앱 컨테이너 이미지, 구조화 로그·알림(UNKNOWN·DEAD·FAILED 누적), admin API 네트워크 제한
 
 - API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)
 - 변경 이력과 각 결정의 이유: [CHANGELOG.md](./CHANGELOG.md)

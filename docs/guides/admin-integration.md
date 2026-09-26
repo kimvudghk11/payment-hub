@@ -85,7 +85,7 @@ await hub.suspendService(actor, serviceId, '결제 이상 거래 조사');
 
 ### 감사 로그와 사유
 
-- **모든 쓰기는 hub가 같은 트랜잭션에서 감사 로그를 남긴다.** admin 레포가 따로 기록할 필요 없다 (조회 API 🚧)
+- **모든 쓰기는 hub가 같은 트랜잭션에서 감사 로그를 남긴다.** admin 레포가 따로 기록할 필요 없다 (조회: `GET /admin/audit-logs`)
 - 아래 작업은 `reason`이 없으면 `400 ADMIN_REASON_REQUIRED` → 화면에서 사유 입력을 필수로 받는다
 
 | 작업 | API |
@@ -93,7 +93,7 @@ await hub.suspendService(actor, serviceId, '결제 이상 거래 조사');
 | 서비스 정지 | `POST /admin/services/:id/suspend` |
 | 서비스 삭제 | `DELETE /admin/services/:id` |
 | PG 자격증명 비활성 | `POST /admin/pg-credentials/:id/deactivate` |
-| 수동 환불 🚧 | `POST /admin/payments/:id/cancel` |
+| 수동 환불 | `POST /admin/payments/:id/cancel` |
 
 ### 재시도해도 안전하다
 

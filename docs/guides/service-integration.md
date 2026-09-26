@@ -399,7 +399,7 @@ app.post('/webhooks/payment-hub', express.raw({ type: 'application/json' }), asy
 
 ### 7.3 전달 보장
 
-- 2xx가 아니면 hub가 **1분, 2분, 4분 … 최대 1시간 간격으로 10번까지**(약 4시간) 재시도한다. 리다이렉트(3xx)도 실패로 본다. 한도를 넘으면 `DEAD`가 되고 admin이 재전송할 수 있다 (재전송 API 🚧)
+- 2xx가 아니면 hub가 **1분, 2분, 4분 … 최대 1시간 간격으로 10번까지**(약 4시간) 재시도한다. 리다이렉트(3xx)도 실패로 본다. 한도를 넘으면 `DEAD`가 되고 admin이 재전송할 수 있다. 그동안 놓친 이벤트는 `GET /events`로도 따라잡을 수 있다
 - 응답은 **10초 안에** 해야 한다. 넘으면 실패로 보고 재시도한다
 - 순서는 보장되지 않는다. 처리 전에 `GET /payments/:id`로 최신 상태를 확인하는 것이 가장 안전하다
 - 놓친 이벤트는 `GET /events?after=<마지막으로 처리한 eventId>`로 따라잡는다. 예제의 `catchUpEvents(lastEventId, handle)`를 배치로 돌리고, 돌려받은 마지막 eventId를 저장해 둔다 (웹훅 처리와 같은 `handle`, eventId 멱등)
