@@ -6,6 +6,12 @@
 
 ### 2026-09-27
 
+#### feat(pg): 토스 빌링키 발급·자동결제 승인·주문번호 조회 추가
+- **무엇을**: `TossPaymentsClient.issueBillingKey`(`POST /v1/billing/authorizations/issue`, 결과 `TossBillingKeyResult`), `chargeBilling`(`POST /v1/billing/{billingKey}` + Idempotency-Key), `getPaymentByOrderId`(`GET /v1/payments/orders/{orderId}`). `TossBillingKey` 타입
+- **왜**: 자동결제의 토스 호출부. 자동결제는 응답을 받기 전에는 paymentKey를 모르므로, 결과 불명이 되면 주문번호로 조회해 대사해야 함
+- **변경 파일**: `src/pg/{toss-payments.client,toss-payment.types}.ts`, `test/pg/toss-payments.client.spec.ts`
+- **남은 작업 / 주의**: 빌링키 삭제는 토스 공개 API를 확인하지 못해 구현하지 않음 — hub 쪽 폐기(REVOKED)만 한다
+
 #### feat(pg-webhook): 토스 → hub 웹훅 수신 및 가상계좌 입금 반영 추가
 - **무엇을**:
   - `POST /api/v1/pg-webhooks/toss` (@Public): `PAYMENT_STATUS_CHANGED`(data.paymentKey)·가상계좌 입금 콜백(orderId) 수신 → `tb_pg_webhook_event` 기록(중복 키 `유형:대상:상태:토스 시각`, 200자 초과 시 해시) → 대상 결제를 **토스 조회로 재확인**해 반영 → `PROCESSED`·`IGNORED`·`FAILED`. 항상 200

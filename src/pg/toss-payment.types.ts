@@ -32,3 +32,15 @@ export interface TossPayment {
   /** ABORTED 등 실패한 결제의 사유 */
   failure?: { code: string; message: string } | null;
 }
+
+/** 빌링키 발급 응답 중 hub가 읽는 필드 */
+export interface TossBillingKey {
+  customerKey: string;
+  /** 시크릿 키와 합쳐지면 결제 가능 — 암호화 저장, 응답·로그 금지 */
+  billingKey: string;
+  /** 카드사 이름 (예: 현대) */
+  cardCompany?: string | null;
+  /** 마스킹된 카드번호 */
+  cardNumber?: string | null;
+  card?: { issuerCode?: string | null; number?: string | null; cardType?: string | null } | null;
+}

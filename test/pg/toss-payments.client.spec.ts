@@ -215,3 +215,75 @@ describe('TossPaymentsClient.cancel (환불)', () => {
     });
   });
 });
+
+describe('TossPaymentsClient — 빌링(자동결제)', () => {
+  const toss = new FakeToss();
+  let client: TossPaymentsClient;
+
+  beforeAll(async () => {
+    client = new TossPaymentsClient({ baseUrl: await toss.start(), timeoutMs: 300 });
+  });
+  afterEach(() => toss.reset());
+  afterAll(() => toss.close());
+
+  it('issueBillingKey: POST /v1/billing/authorizations/issue { authKey, customerKey } → 빌링키·카드 정보', async () => {
+    const body = {
+      customerKey: 'c_1',
+      billingKey: 'bk_secret_value',
+      cardCompany: '현대',
+      cardNumber: '433012******1234',
+      card: { issuerCode: '61', number: '433012******1234', cardType: '신용' },
+    };
+    toss.respond(() => ({ status: 200, body }));
+
+    const result = await client.issueBillingKey({ secretKey: SECRET_KEY, authKey: 'bln_auth', customerKey: 'c_1' });
+
+    expect(toss.requests[0]).toMatchObject({
+      method: 'POST',
+      path: '/v1/billing/authorizations/issue',
+      body: { authKey: 'bln_auth', customerKey: 'c_1' },
+    });
+    expect(result).toEqual({ outcome: 'APPROVED', billingKey: body });
+  });
+
+  it('issueBillingKey 거절 → REJECTED', async () => {
+    toss.respond(() => ({ status: 400, body: { code: 'INVALID_CARD_NUMBER', message: '카드번호 오류' } }));
+
+    await expect(
+      client.issueBillingKey({ secretKey: SECRET_KEY, authKey: 'bln_auth', customerKey: 'c_1' }),
+    ).resolves.toMatchObject({ outcome: 'REJECTED', code: 'INVALID_CARD_NUMBER' });
+  });
+
+  it('chargeBilling: POST /v1/billing/{billingKey} { customerKey, amount, orderId, orderName } + Idempotency-Key', async () => {
+    toss.respond((request) => ({
+      status: 200,
+      body: { paymentKey: 'tbill_1', status: 'DONE', orderId: request.body.orderId },
+    }));
+
+    const result = await client.chargeBilling({
+      secretKey: SECRET_KEY,
+      billingKey: 'bk/secret',
+      customerKey: 'c_1',
+      amount: 29000,
+      orderId: 'order-1',
+      orderName: '프로 요금제 10월',
+      idempotencyKey: 'billing:pay-1',
+    });
+
+    expect(toss.requests[0]).toMatchObject({
+      path: '/v1/billing/bk%2Fsecret',
+      body: { customerKey: 'c_1', amount: 29000, orderId: 'order-1', orderName: '프로 요금제 10월' },
+    });
+    expect(toss.requests[0].headers['idempotency-key']).toBe('billing:pay-1');
+    expect(result).toMatchObject({ outcome: 'APPROVED', payment: { paymentKey: 'tbill_1', status: 'DONE' } });
+  });
+
+  it('getPaymentByOrderId: GET /v1/payments/orders/{orderId} (paymentKey를 모르는 빌링 결제 대사용)', async () => {
+    toss.respond(() => ({ status: 200, body: { paymentKey: 'tbill_1', orderId: 'order-1', status: 'DONE' } }));
+
+    const result = await client.getPaymentByOrderId({ secretKey: SECRET_KEY, orderId: 'order-1' });
+
+    expect(toss.requests[0]).toMatchObject({ method: 'GET', path: '/v1/payments/orders/order-1' });
+    expect(result).toMatchObject({ outcome: 'APPROVED', payment: { paymentKey: 'tbill_1' } });
+  });
+});

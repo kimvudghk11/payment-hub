@@ -1,4 +1,4 @@
-import { TossPayment } from './toss-payment.types';
+import { TossBillingKey, TossPayment } from './toss-payment.types';
 
 export interface TossPaymentsClientOptions {
   /** https://api.tosspayments.com (테스트는 가짜 서버 주소) */
@@ -18,6 +18,10 @@ export type TossResult =
   | { outcome: 'APPROVED'; payment: TossPayment }
   | { outcome: 'REJECTED'; code: string; message: string; response: Record<string, unknown> }
   | { outcome: 'UNKNOWN'; reason: TossUnknownReason; response: Record<string, unknown> | null };
+
+/** 빌링키 발급 결과. APPROVED면 빌링키 원문 포함 — 암호화 전까지만 메모리에 둔다 */
+export type TossBillingKeyResult =
+  { outcome: 'APPROVED'; billingKey: TossBillingKey } | Exclude<TossResult, { outcome: 'APPROVED' }>;
 
 /** 이전 요청이 이미 승인했을 수 있는 코드 — 실패로 확정하면 "돈은 나갔는데 실패 기록"이 된다 */
 const ALREADY_PROCESSED_CODES = new Set(['ALREADY_PROCESSED_PAYMENT', 'ALREADY_CANCELED_PAYMENT']);
@@ -72,6 +76,49 @@ export class TossPaymentsClient {
           : {}),
       },
     });
+  }
+
+  /**
+   * 빌링키 발급 (카드 등록창 인증 후). https://docs.tosspayments.com/reference#authkey로-빌링키-발급
+   * 응답의 billingKey는 시크릿 키와 합쳐지면 결제가 가능한 값 — 호출하는 쪽이 바로 암호화하고 로그에 남기지 않는다.
+   */
+  async issueBillingKey(params: {
+    secretKey: string;
+    authKey: string;
+    customerKey: string;
+  }): Promise<TossBillingKeyResult> {
+    const result = await this.request('POST', '/v1/billing/authorizations/issue', params.secretKey, {
+      body: { authKey: params.authKey, customerKey: params.customerKey },
+    });
+    return result.outcome === 'APPROVED'
+      ? { outcome: 'APPROVED', billingKey: result.payment as unknown as TossBillingKey }
+      : result;
+  }
+
+  /** 빌링키로 자동결제 승인. https://docs.tosspayments.com/reference#카드-자동결제-승인 */
+  chargeBilling(params: {
+    secretKey: string;
+    billingKey: string;
+    customerKey: string;
+    amount: number;
+    orderId: string;
+    orderName: string;
+    idempotencyKey: string;
+  }): Promise<TossResult> {
+    return this.request('POST', `/v1/billing/${encodeURIComponent(params.billingKey)}`, params.secretKey, {
+      idempotencyKey: params.idempotencyKey,
+      body: {
+        customerKey: params.customerKey,
+        amount: params.amount,
+        orderId: params.orderId,
+        orderName: params.orderName,
+      },
+    });
+  }
+
+  /** 주문번호로 결제 조회 — paymentKey를 받기 전에 결과를 모르게 된 자동결제의 대사용 */
+  getPaymentByOrderId(params: { secretKey: string; orderId: string }): Promise<TossResult> {
+    return this.request('GET', `/v1/payments/orders/${encodeURIComponent(params.orderId)}`, params.secretKey, {});
   }
 
   /**
