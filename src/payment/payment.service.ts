@@ -7,11 +7,8 @@ import { paginateByCreatedAt } from '../common/database/cursor-pagination';
 import { BusinessException } from '../common/errors/business.exception';
 import { ErrorCode } from '../common/errors/error-code';
 import { IPageable } from '../common/interceptors/response.interceptor';
-import { LedgerService } from '../ledger/ledger.service';
 import { OrderItem } from '../order/domain/order-item.entity';
 import { Order } from '../order/domain/order.entity';
-import { OutboxEventType } from '../outbox/constants/outbox.constants';
-import { OutboxService } from '../outbox/outbox.service';
 import { PgProvider } from '../pg/constants/pg.constants';
 import { hubErrorForTossRejection } from '../pg/toss-error';
 import { TossPaymentsClient, TossResult } from '../pg/toss-payments.client';
@@ -19,6 +16,7 @@ import { ServiceService } from '../service/service.service';
 import { PaymentStatus } from './constants/payment.constants';
 import { Payment } from './domain/payment.entity';
 import { ListPaymentsQueryDto } from './dto/request/list-payments.query.dto';
+import { PaymentOutcomeService } from './payment-outcome.service';
 
 export interface ConfirmPaymentCommand {
   serviceId: string;
@@ -55,8 +53,7 @@ export class PaymentService {
     private readonly serviceService: ServiceService,
     private readonly encryption: EncryptionService,
     private readonly toss: TossPaymentsClient,
-    private readonly ledger: LedgerService,
-    private readonly outbox: OutboxService,
+    private readonly outcome: PaymentOutcomeService,
   ) {}
 
   /**
@@ -188,28 +185,8 @@ export class PaymentService {
     else if (result.outcome === 'REJECTED') payment.markFailed(result);
     else payment.markUnknown(result.response);
     await this.payments.save(payment);
-    await this.recordOutcome(payment, order);
+    await this.outcome.record(payment, order);
     return { payment, order };
-  }
-
-  /** 결제 상태가 정해진 뒤의 후속 기록 (호출한 트랜잭션 안에서). UNKNOWN은 대사가 확정할 때 기록한다 */
-  private async recordOutcome(payment: Payment, order: Order): Promise<void> {
-    switch (payment.status) {
-      case PaymentStatus.DONE:
-        order.markPaid(payment.approvedAt ?? new Date());
-        await this.orders.save(order);
-        await this.ledger.recordPaymentCaptured(payment);
-        await this.outbox.publishPaymentEvent(OutboxEventType.PAYMENT_CONFIRMED, payment, order);
-        return;
-      case PaymentStatus.WAITING_FOR_DEPOSIT:
-        await this.outbox.publishPaymentEvent(OutboxEventType.PAYMENT_WAITING_FOR_DEPOSIT, payment, order);
-        return;
-      case PaymentStatus.FAILED:
-        await this.outbox.publishPaymentEvent(OutboxEventType.PAYMENT_FAILED, payment, order);
-        return;
-      default:
-        return;
-    }
   }
 
   /** 트랜잭션이 커밋된 뒤 응답을 정한다 (실패 응답이 결과 반영을 롤백하지 않도록 tx2 밖에서 던진다) */

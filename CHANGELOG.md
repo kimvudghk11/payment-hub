@@ -6,6 +6,11 @@
 
 ### 2026-09-27
 
+#### refactor(payment): 결제 결과 후속 기록(주문·원장·outbox)을 PaymentOutcomeService로 분리
+- **무엇을**: `PaymentService`의 결과 후속 기록을 `PaymentOutcomeService.record(payment, order)`로 옮김. 동작 변경 없음 (결제 통합 테스트 34개 그대로 통과)
+- **왜**: 대사 배치도 같은 규칙(DONE → 주문 PAID·원장·PAYMENT_CONFIRMED …)으로 결과를 기록해야 함. 두 곳에 복사하면 규칙이 어긋남
+- **변경 파일**: `src/payment/{payment.service,payment-outcome.service,payment.module}.ts`
+
 #### feat(payment): 토스 결제 상태 ABORTED·EXPIRED 반영 규칙 추가
 - **무엇을**: `Payment.applyTossPayment`가 토스 `ABORTED` → `FAILED`(토스 `failure.code·message` 보존), `EXPIRED` → `EXPIRED`로 확정. `READY`·`IN_PROGRESS` 등 승인 전 상태는 계속 `UNKNOWN`. `TossPayment.failure` 타입 추가
 - **왜**: 대사가 토스 조회 결과로 결제를 확정하려면 실패·만료도 판단할 수 있어야 함. 실패·만료는 "돈이 나가지 않음"이 확정된 상태라 같은 주문으로 다시 결제할 수 있게 살아있는 결제에서 빠짐. 토스 `ABORTED`를 hub `ABORTED`가 아닌 `FAILED`로 두어 서비스가 볼 실패 상태를 하나로 유지
