@@ -61,6 +61,27 @@ export class OutboxEvent {
     return event;
   }
 
+  /** 주문 단위 이벤트 (ORDER_EXPIRED). 결제가 없으므로 주문의 외부 ID·금액만 */
+  static forOrder(eventType: OutboxEventType, order: Order, occurredAt: Date): OutboxEvent {
+    const event = new OutboxEvent();
+    event.outboxEventId = randomUUID();
+    event.serviceId = order.serviceId;
+    event.eventType = eventType;
+    event.aggregateType = OutboxAggregateType.ORDER;
+    event.aggregateId = order.orderId;
+    event.payload = {
+      orderId: order.orderId,
+      externalOrderId: order.externalOrderId,
+      externalUserId: order.externalUserId,
+      status: order.status,
+      totalAmount: order.totalAmount,
+      currency: order.currency,
+      expiresAt: order.expiresAt.toISOString(),
+    };
+    event.occurredAt = occurredAt;
+    return event;
+  }
+
   /** 환불 확정 이벤트. 결제 요약(환불 누적 반영) + 이번 취소 건. 사건 시각은 토스 취소 시각 */
   static forPaymentCancel(payment: Payment, order: Order, cancel: PaymentCancel): OutboxEvent {
     const canceledAt = cancel.canceledAt ?? new Date();

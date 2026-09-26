@@ -133,6 +133,17 @@ export class Order extends BaseEntity {
     if (amount !== this.totalAmount) throw new BusinessException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
   }
 
+  /**
+   * 만료 배치. PENDING이고 만료 시각이 지났으면 EXPIRED.
+   * 살아있는 결제(입금 대기·결과 불명)가 있는 주문은 호출하는 쪽이 제외한다 — 돈이 아직 들어올 수 있다.
+   * @returns 만료시켰으면 true
+   */
+  expire(now: Date): boolean {
+    if (this.status !== OrderStatus.PENDING || this.expiresAt.getTime() > now.getTime()) return false;
+    this.status = OrderStatus.EXPIRED;
+    return true;
+  }
+
   markPaid(paidAt: Date): void {
     if (this.status !== OrderStatus.PENDING) {
       throw new Error(`주문 ${this.orderId}: ${this.status} → PAID 전이 불가`);

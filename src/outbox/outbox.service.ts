@@ -29,6 +29,11 @@ export class OutboxService {
     return this.publish(OutboxEvent.forPayment(eventType, payment, order, new Date()));
   }
 
+  /** 주문 이벤트 (ORDER_EXPIRED) */
+  async publishOrderEvent(eventType: OutboxEventType, order: Order): Promise<OutboxEvent> {
+    return this.publish(OutboxEvent.forOrder(eventType, order, new Date()));
+  }
+
   /** 환불 확정 (PAYMENT_CANCELED) */
   async publishPaymentCancelEvent(payment: Payment, order: Order, cancel: PaymentCancel): Promise<OutboxEvent> {
     return this.publish(OutboxEvent.forPaymentCancel(payment, order, cancel));

@@ -6,6 +6,14 @@
 
 ### 2026-09-27
 
+#### feat(order): 주문 만료 배치 추가 (ORDER_EXPIRED 이벤트)
+- **무엇을**: `OrderExpirer.expireDue()` — 만료 시각이 지난 PENDING 주문 중 살아있는 결제가 없는 것을 주문 행 락 + 재확인 후 `EXPIRED`로 바꾸고 `ORDER_EXPIRED` 이벤트(웹훅 전달 대상 포함) 발행. `Order.expire(now)`, `OutboxEvent.forOrder`, `OutboxService.publishOrderEvent`, `OrderExpiryScheduler`(기본 1분, `ORDER_EXPIRY_ENABLED`·`ORDER_EXPIRY_INTERVAL_MS`)
+- **왜**:
+  - 승인 시 만료 시각은 이미 검사하지만, 주문 상태가 PENDING으로 남아 서비스가 "결제 안 된 주문"을 정리할 신호가 없었음
+  - 입금 대기(가상계좌 입금 기한이 주문 만료보다 길 수 있음)·결과 불명 결제가 있는 주문을 만료하면, 나중에 돈이 들어와도 주문을 PAID로 바꿀 수 없음 → 제외
+  - 제외 조건을 후보 쿼리에 넣음: 건너뛴 주문이 오래된 순 배치의 앞자리를 계속 차지하면 뒤의 주문이 영원히 만료되지 않음
+- **변경 파일**: `src/order/{order-expirer,order-expiry.scheduler,order.module}.ts`, `src/order/domain/order.entity.ts`, `src/outbox/{outbox.service.ts,domain/outbox-event.entity.ts}`, `test/order/*`, `test/outbox/outbox-event.entity.spec.ts`, `test/support/integration-app.ts`, `docs/api.md`, `.env.example`, `README.md`
+
 #### feat(admin): 관리자 수동 환불 API(POST /admin/payments/:id/cancel) 추가
 - **무엇을**:
   - 서비스 환불과 같은 유스케이스(`PaymentCancelService`)·규칙(환불 가능 금액 상한·항목·멱등·토스 결과 처리)에 `requestedBy = ADMIN`. 본문은 서비스 환불 + `reason`(필수)

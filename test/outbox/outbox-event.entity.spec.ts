@@ -281,3 +281,36 @@ describe('WebhookDelivery.redeliver — 관리자 재전송', () => {
     expect(delivery).toMatchObject({ status: WebhookDeliveryStatus.PENDING, nextAttemptAt: t0 });
   });
 });
+
+describe('OutboxEvent.forOrder', () => {
+  it('ORDER_EXPIRED: 주문 단위 이벤트 — 서비스가 자기 주문을 찾을 수 있는 값만', () => {
+    const expired = Object.assign(new Order(), {
+      orderId: 'order-1',
+      serviceId: 'svc-1',
+      externalOrderId: 'svc-order-0001',
+      externalUserId: 'user-123',
+      status: 'EXPIRED',
+      totalAmount: 30000,
+      currency: 'KRW',
+      expiresAt: now,
+    });
+
+    const event = OutboxEvent.forOrder(OutboxEventType.ORDER_EXPIRED, expired, now);
+
+    expect(event).toMatchObject({
+      serviceId: 'svc-1',
+      aggregateType: 'ORDER',
+      aggregateId: 'order-1',
+      occurredAt: now,
+    });
+    expect(event.payload).toEqual({
+      orderId: 'order-1',
+      externalOrderId: 'svc-order-0001',
+      externalUserId: 'user-123',
+      status: 'EXPIRED',
+      totalAmount: 30000,
+      currency: 'KRW',
+      expiresAt: now.toISOString(),
+    });
+  });
+});

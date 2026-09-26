@@ -200,3 +200,24 @@ describe('Order.markPaid', () => {
     expect(() => order.markPaid(new Date())).toThrow('PAID');
   });
 });
+
+describe('Order.expire (만료 배치)', () => {
+  it('PENDING이고 만료 시각이 지났으면 EXPIRED → true', () => {
+    const order = Order.create(params());
+    expect(order.expire(EXPIRES_AT)).toBe(true);
+    expect(order.status).toBe(OrderStatus.EXPIRED);
+  });
+
+  it('만료 시각 전이면 그대로 → false', () => {
+    const order = Order.create(params());
+    expect(order.expire(new Date(EXPIRES_AT.getTime() - 1))).toBe(false);
+    expect(order.status).toBe(OrderStatus.PENDING);
+  });
+
+  it.each([OrderStatus.PAID, OrderStatus.EXPIRED, OrderStatus.CANCELED])('%s 주문은 그대로 → false', (status) => {
+    const order = Order.create(params());
+    order.status = status;
+    expect(order.expire(EXPIRES_AT)).toBe(false);
+    expect(order.status).toBe(status);
+  });
+});

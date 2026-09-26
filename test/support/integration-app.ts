@@ -42,6 +42,7 @@ export const createIntegrationApp = async (env: Record<string, string> = {}): Pr
     // 배치(웹훅 발송·대사)는 테스트가 직접 호출한다 (주기 실행은 스케줄러 테스트에서만)
     WEBHOOK_DISPATCH_ENABLED: 'false',
     RECONCILE_ENABLED: 'false',
+    ORDER_EXPIRY_ENABLED: 'false',
     ...env,
   });
 

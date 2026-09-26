@@ -391,6 +391,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 - 할인·금액 계산은 서비스 책임. hub는 합계가 맞는지만 확인하고, `discountType`·`metadata`는 해석 없이 저장한다
 - 응답의 `orderId`를 토스 결제창의 `orderId`로 사용한다
 - `expiresInSeconds` 이후에는 결제 승인이 `409 ORDER_EXPIRED`
+- 만료 배치 ✅(1분마다)가 결제 없이 만료된 주문을 `EXPIRED`로 바꾸고 `ORDER_EXPIRED` 웹훅을 보낸다. **입금 대기(가상계좌)·결과 불명 결제가 있는 주문은 만료하지 않는다** — 결제가 확정되면 그 결과를 따른다
 
 ```json
 // 응답 201 (재시도는 200, 본문 동일)
@@ -749,7 +750,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `PAYMENT_FAILED` | 결제 실패 확정 (대사 결과 포함) |
 | `PAYMENT_WAITING_FOR_DEPOSIT` | 가상계좌 발급, 입금 대기 |
 | `PAYMENT_CANCELED` | 전체·부분 환불 완료. `data.cancel`에 이번 취소 건(`paymentCancelId`, `amount`, `reasonCode`, `canceledAt`) |
-| `ORDER_EXPIRED` | 결제 없이 주문 만료 |
+| `ORDER_EXPIRED` | 결제 없이 주문 만료. `data`는 결제가 아니라 주문: `{ orderId, externalOrderId, externalUserId, status, totalAmount, currency, expiresAt }` |
 
 `data`는 결제 "사실"만 담는다 — 서비스가 자기 주문을 찾을 수 있게 `externalOrderId`·`externalUserId`를 넣고, PG 응답 원본·원장은 넣지 않는다. `failureCode`·`failureMessage`는 `PAYMENT_FAILED`일 때 토스 원본 사유.
 
