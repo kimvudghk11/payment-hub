@@ -51,7 +51,7 @@ payment-hub는 **"결제만"** 중앙화한다. 주문 서버를 별도로 두�
 2. **ledger가 분기하는 값만 제한한다.** 상태 머신·내부 분기 값은 `varchar + CHECK`. 서비스가 자유롭게 정의하는 값(`discount_type`, `reason_code`, `metadata` 등)은 제한 없이 저장만 한다. PostgreSQL enum 타입은 마이그레이션 부담 때문에 쓰지 않는다.
 3. **서비스 소유권은 DB가 강제한다.** 주문·항목·결제·취소·빌링키는 `(id, service_id)` 복합 FK로 연결된다. 코드 버그가 있어도 서비스 B가 서비스 A의 자원을 건드릴 수 없다.
 4. **외부 호출 전에 먼저 기록한다.** 토스 호출 전 `IN_PROGRESS`/`REQUESTED`로 저장 → 호출 → 결과 반영. 결과를 모르면 `UNKNOWN`으로 두고 대사 배치가 확정한다. "돈은 나갔는데 기록이 없는" 상태를 만들지 않는다.
-5. **모든 쓰기 요청은 멱등하다.** 주문 생성은 `(service_id, external_order_id)`, 결제는 `idempotency_key`(토스 `Idempotency-Key` 헤더로도 전달), 취소는 `(service_id, idempotency_key)`. 같은 키로 재요청하면 에러가 아니라 기존 결과를 반환한다.
+5. **모든 쓰기 요청은 멱등하다.** 주문 생성은 `(service_id, external_order_id)`, 결제는 `(service_id, idempotency_key)`(토스 `Idempotency-Key` 헤더로도 전달), 취소는 `(service_id, idempotency_key)`. 멱등키는 서비스가 정하는 값이므로 항상 서비스 단위로 유일하다. 같은 키로 재요청하면 에러가 아니라 기존 결과를 반환한다.
 6. **원장은 append-only 복식부기.** 차변 합 = 대변 합을 커밋 시점 트리거로 강제. UPDATE/DELETE는 트리거로 차단. 잘못된 기장은 `ADJUSTMENT` 반대 분개로만 정정한다.
 7. **상태 변경과 이벤트 발행은 같은 트랜잭션.** Transactional Outbox 패턴. 결제/취소 저장과 `tb_outbox_event` INSERT를 한 트랜잭션으로 묶는다.
 8. **비밀값은 암호화 저장.** 토스 시크릿 키, 빌링키, 웹훅 서명 키는 `*_enc bytea` + 암호화 키 ID(`*_key_id`)로 저장. API 키는 SHA-256 해시만 저장하고 평문은 발급 시 1회만 응답한다.
@@ -84,6 +84,12 @@ payment-hub는 **"결제만"** 중앙화한다. 주문 서버를 별도로 두�
 - `tb_webhook_delivery.status`: `PENDING → PROCESSING → SUCCEEDED | RETRYING → … → DEAD`
 
 한 주문에 "살아있는" 결제(`FAILED/ABORTED/EXPIRED` 제외)는 하나만 존재한다 (부분 유니크 인덱스).
+
+### 결제 수단 분류
+
+`tb_payment.method`는 토스 응답 원문이고, 조회 필터·리포트 분류에는 hub가 정규화한 컬럼을 쓴다.
+`method_type`(CARD / VIRTUAL_ACCOUNT / TRANSFER / EASY_PAY / MOBILE_PHONE / GIFT_CERTIFICATE)과 `card_type`(CREDIT / CHECK / GIFT / UNKNOWN)은 hub가 분기하므로 CHECK로 제한하고,
+카드사 코드·은행 코드·간편결제사처럼 토스가 정의하는 값은 원문 그대로 저장한다. 결제 확정 전(`IN_PROGRESS`)에는 모두 NULL.
 
 ### 원장 분개 규칙
 

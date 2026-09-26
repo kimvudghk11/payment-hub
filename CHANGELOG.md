@@ -6,6 +6,20 @@
 
 ### 2026-09-26
 
+#### schema(payment): 결제 수단 분류 컬럼 추가 및 결제 멱등키 서비스 단위 유니크로 변경
+- **무엇을**:
+  - `tb_payment`에 결제 수단 분류 컬럼 추가: `method_type`(CHECK), `card_company_code`, `card_type`(CHECK), `card_number_masked`, `installment_months`, `easy_pay_provider`, `bank_code`, `virtual_account_number`, `virtual_account_due_at`
+  - `uq_tb_payment_idempotency`: `UNIQUE (idempotency_key)` → `UNIQUE (service_id, idempotency_key)`
+  - `PaymentMethodType`, `CardType` constants 추가, `Payment` 엔티티 매핑, 적합성 테스트 대응표 갱신
+- **왜**:
+  - 결제 조회 필터(카드만, 가상계좌만)와 매출 리포트의 수단별 분류가 필요. 토스 `method` 원문은 한국어 문자열이라 분기·집계 키로 쓰기 어려워 hub가 정규화한 값을 따로 둠. 카드사·은행 코드는 토스가 정의하는 값이라 CHECK 없이 원문 저장 (설계 원칙 2)
+  - 가상계좌는 입금 전까지 서비스가 사용자에게 계좌번호·기한을 안내해야 하므로 결제 행에 보관
+  - 빌링 결제 멱등키는 서비스가 보내는 값이라 전역 유니크면 서비스 간 우연한 충돌로 다른 서비스 결제가 실패함. 취소(`(service_id, idempotency_key)`)와 규칙 통일
+- **변경 파일**: `db/schema.sql`, `src/payment/constants/payment.constants.ts`, `src/payment/domain/payment.entity.ts`, `test/schema/constants-check.int-spec.ts`, `CLAUDE.md`
+- **스키마/에러 코드**: `tb_payment` 컬럼 9개·CHECK 3개 추가, 결제 멱등 유니크 키 변경
+- **문서**: CLAUDE.md 설계 원칙 5(결제 멱등키 범위), 4장 "결제 수단 분류" 추가
+- **남은 작업 / 주의**: 토스 응답 → 분류 컬럼 정규화 매핑은 결제 승인 구현 시. 기존 DB가 있다면 `docker compose down -v`로 재생성 필요
+
 #### feat(common): 에러 코드·BusinessException·전역 예외 필터 추가
 - **무엇을**:
   - `src/common/errors/error-code.ts`: CLAUDE.md 기본 에러 코드 25개. 정의는 `{ status, message }`만 쓰고 `code`(=키)는 자동 부여

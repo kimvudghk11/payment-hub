@@ -24,6 +24,26 @@ export const PaymentStatus = {
 } as const;
 export type PaymentStatus = (typeof PaymentStatus)[keyof typeof PaymentStatus];
 
+/** DB: ck_tb_payment_method_type. 토스 응답 method를 hub가 정규화한 결제 수단 분류 */
+export const PaymentMethodType = {
+  CARD: 'CARD',
+  VIRTUAL_ACCOUNT: 'VIRTUAL_ACCOUNT',
+  TRANSFER: 'TRANSFER',
+  EASY_PAY: 'EASY_PAY',
+  MOBILE_PHONE: 'MOBILE_PHONE',
+  GIFT_CERTIFICATE: 'GIFT_CERTIFICATE',
+} as const;
+export type PaymentMethodType = (typeof PaymentMethodType)[keyof typeof PaymentMethodType];
+
+/** DB: ck_tb_payment_card_type. 토스 card.cardType('신용'/'체크'/'기프트'/'미확인') 정규화 */
+export const CardType = {
+  CREDIT: 'CREDIT',
+  CHECK: 'CHECK',
+  GIFT: 'GIFT',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+export type CardType = (typeof CardType)[keyof typeof CardType];
+
 /** DB: ck_tb_payment_cancel_status. REQUESTED → DONE | FAILED | UNKNOWN */
 export const PaymentCancelStatus = {
   REQUESTED: 'REQUESTED',

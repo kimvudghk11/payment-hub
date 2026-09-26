@@ -5,7 +5,9 @@ import { LedgerAccountType, LedgerDirection, LedgerTransactionType } from '../..
 import { OrderStatus } from '../../src/order/constants/order.constants';
 import { OutboxEventType, WebhookDeliveryStatus } from '../../src/outbox/constants/outbox.constants';
 import {
+  CardType,
   CancelRequestedBy,
+  PaymentMethodType,
   PaymentCancelStatus,
   PaymentStatus,
   PaymentType,
@@ -26,6 +28,8 @@ const CONSTANT_BY_CHECK: Record<string, Record<string, string>> = {
   ck_tb_payment_provider: PgProvider,
   ck_tb_payment_type: PaymentType,
   ck_tb_payment_status: PaymentStatus,
+  ck_tb_payment_method_type: PaymentMethodType,
+  ck_tb_payment_card_type: CardType,
   ck_tb_payment_cancel_status: PaymentCancelStatus,
   ck_tb_payment_cancel_requested_by: CancelRequestedBy,
   ck_tb_ledger_account_type: LedgerAccountType,

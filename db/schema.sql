@@ -207,7 +207,17 @@ CREATE TABLE tb_payment (
   payment_type          varchar(20)  NOT NULL,            -- NORMAL / BILLING
   idempotency_key       varchar(100) NOT NULL,            -- 토스 호출 시 Idempotency-Key 헤더로도 사용
   provider_payment_key  varchar(200) NULL,                -- 토스 paymentKey (빌링은 응답 후 채워짐)
-  method                varchar(30)  NULL,                -- 카드, 간편결제, 가상계좌 ... (토스 응답값)
+  method                varchar(30)  NULL,                -- 토스 응답 원문 ('카드', '가상계좌' ...). 분류는 아래 정규화 컬럼 사용
+  -- 결제 수단 분류 (토스 응답에서 hub가 정규화해 채운다. 결제 확정 전에는 NULL)
+  method_type           varchar(20)  NULL,                -- CARD / VIRTUAL_ACCOUNT / TRANSFER / EASY_PAY / MOBILE_PHONE / GIFT_CERTIFICATE
+  card_company_code     varchar(10)  NULL,                -- 토스 카드사 코드 (issuerCode)
+  card_type             varchar(10)  NULL,                -- CREDIT / CHECK / GIFT / UNKNOWN
+  card_number_masked    varchar(30)  NULL,
+  installment_months    smallint     NULL,                -- 0 = 일시불
+  easy_pay_provider     varchar(30)  NULL,                -- 토스페이, 카카오페이 ... (토스 easyPay.provider 원문)
+  bank_code             varchar(10)  NULL,                -- 가상계좌·계좌이체 은행 코드
+  virtual_account_number varchar(30) NULL,                -- 가상계좌 입금 계좌 (서비스가 사용자에게 안내)
+  virtual_account_due_at timestamptz NULL,                -- 가상계좌 입금 기한
   currency              char(3)      NOT NULL,
   amount                bigint       NOT NULL,
   refunded_amount       bigint       NOT NULL DEFAULT 0,  -- tb_payment_cancel(DONE) 합계의 캐시
@@ -220,7 +230,7 @@ CREATE TABLE tb_payment (
   created_at            timestamptz  NOT NULL DEFAULT now(),
   updated_at            timestamptz  NOT NULL DEFAULT now(),
   CONSTRAINT pk_tb_payment PRIMARY KEY (id),
-  CONSTRAINT uq_tb_payment_idempotency UNIQUE (idempotency_key),
+  CONSTRAINT uq_tb_payment_idempotency UNIQUE (service_id, idempotency_key),
   CONSTRAINT uq_tb_payment_provider_key UNIQUE (provider, provider_payment_key),
   CONSTRAINT uq_tb_payment_id_service UNIQUE (id, service_id),
   CONSTRAINT fk_tb_payment_order FOREIGN KEY (order_id, service_id)
@@ -233,6 +243,11 @@ CREATE TABLE tb_payment (
     (payment_type = 'BILLING' AND billing_key_id IS NOT NULL)
   ),
   CONSTRAINT ck_tb_payment_amount CHECK (amount > 0 AND refunded_amount BETWEEN 0 AND amount),
+  CONSTRAINT ck_tb_payment_method_type CHECK (method_type IN (
+    'CARD', 'VIRTUAL_ACCOUNT', 'TRANSFER', 'EASY_PAY', 'MOBILE_PHONE', 'GIFT_CERTIFICATE'
+  )),
+  CONSTRAINT ck_tb_payment_card_type CHECK (card_type IN ('CREDIT', 'CHECK', 'GIFT', 'UNKNOWN')),
+  CONSTRAINT ck_tb_payment_installment CHECK (installment_months >= 0),
   CONSTRAINT ck_tb_payment_status CHECK (status IN (
     'IN_PROGRESS',          -- 토스 호출 직전에 먼저 저장
     'UNKNOWN',              -- 타임아웃 등 결과 불명 → 대사 배치가 토스 조회로 확정
