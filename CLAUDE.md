@@ -54,7 +54,7 @@ payment-hub는 **"결제만"** 중앙화한다. 주문 서버를 별도로 두�
 5. **모든 쓰기 요청은 멱등하다.** 주문 생성은 `(service_id, external_order_id)`, 결제는 `(service_id, idempotency_key)`(토스 `Idempotency-Key` 헤더로도 전달), 취소는 `(service_id, idempotency_key)`. 멱등키는 서비스가 정하는 값이므로 항상 서비스 단위로 유일하다. 같은 키로 재요청하면 에러가 아니라 기존 결과를 반환한다.
 6. **원장은 append-only 복식부기.** 차변 합 = 대변 합을 커밋 시점 트리거로 강제. UPDATE/DELETE는 트리거로 차단. 잘못된 기장은 `ADJUSTMENT` 반대 분개로만 정정한다.
 7. **상태 변경과 이벤트 발행은 같은 트랜잭션.** Transactional Outbox 패턴. 결제/취소 저장과 `tb_outbox_event` INSERT를 한 트랜잭션으로 묶는다.
-8. **비밀값은 암호화 저장.** 토스 시크릿 키, 빌링키, 웹훅 서명 키는 `*_enc bytea` + 암호화 키 ID(`*_key_id`)로 저장. API 키는 SHA-256 해시만 저장하고 평문은 발급 시 1회만 응답한다.
+8. **비밀값은 암호화 저장.** 토스 시크릿 키, 빌링키, 웹훅 서명 키는 `*_enc bytea` + 암호화 키 ID(`*_key_id`)로 저장. 암호화는 `EncryptionService`(AES-256-GCM, env `ENCRYPTION_KEYS` 버전 키링 + `ENCRYPTION_KEY_ID`). 키 교체는 새 버전 추가 후 `ENCRYPTION_KEY_ID`만 바꾸고 이전 키는 복호화용으로 남긴다. API 키는 SHA-256 해시만 저장하고 평문은 발급 시 1회만 응답한다.
 9. **도메인 규칙은 엔티티 안에.** 불변식 검증과 상태 전이는 서비스 레이어가 아니라 엔티티 메서드가 책임진다(5장 참고).
 
 ---
@@ -220,7 +220,9 @@ payment-hub는 호출 주체가 둘이고, API 표면도 둘로 완전히 나뉜
 - admin API의 **모든 쓰기**는 같은 DB 트랜잭션에서 감사 로그를 남긴다. 조회는 남기지 않는다.
 - `before`/`after`에 변경 전후를 jsonb로 남기되 비밀값(시크릿 키, 키 해시, 서명 키)은 제외.
 - append-only. UPDATE/DELETE는 트리거로 차단된다.
-- 수동 환불·서비스 정지처럼 영향이 큰 작업은 `reason` 필수.
+- 수동 환불·서비스 정지처럼 영향이 큰 작업은 `reason` 필수. 필수 여부는 `REASON_REQUIRED_ACTIONS`에 두고 `AdminAuditLog.record()`가 검증한다 (DTO가 아니라 도메인이 판단 → 어떤 경로로도 우회 불가).
+- 관리 쓰기 순서: 대상 행 `pessimistic_write` 락 → 엔티티 행위(바뀌었는지 반환) → 저장 → `AdminAuditService.record()`. 전부 `@Transactional()` 하나.
+- 이미 그 상태인 재요청(정지된 서비스 정지, 폐기된 키 폐기)은 **200 + 현재 상태, 감사 로그 없음** (멱등).
 
 ---
 
@@ -376,7 +378,8 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 
 ### 인증
 - 서비스 API: `Authorization: Bearer <api_key>` → ApiKeyGuard가 SHA-256 해시로 `tb_service_api_key` 조회 (revoked/expired/서비스 SUSPENDED 거부), `last_used_at` 갱신은 비동기.
-- 인증된 서비스 ID는 `req.serviceId`. 모든 조회·쓰기 쿼리에 `service_id` 조건 필수.
+- 인증된 서비스 ID는 `req.serviceId`(핸들러에서는 `@CurrentServiceId()`). 모든 조회·쓰기 쿼리에 `service_id` 조건 필수. 관리자는 `@CurrentAdminActor()`.
+- ApiKeyGuard 거부 순서: 키 없음·미등록 `UNAUTHORIZED` → 폐기 `API_KEY_REVOKED` → 만료 `API_KEY_EXPIRED` → 서비스 삭제 `UNAUTHORIZED`(존재 숨김) → 정지 `SERVICE_SUSPENDED`.
 - 어드민 API: AdminGuard가 admin 키 + 관리자 헤더 검증 (6장 참고). 인증된 관리자는 `req.adminActor`.
 - **가드는 기본 거부(default deny).** 모든 핸들러는 `@ServiceApi()`, `@AdminApi()`, `@Public()` 중 하나를 반드시 붙인다. 아무것도 없으면 전역 가드가 거부한다.
   - 구조: 전역 `AuthGuard`(`common/guards/auth.module.ts`에서 `APP_GUARD` 등록)가 데코레이터를 읽고 `AdminGuard` / `ApiKeyGuard`에 위임한다. 데코레이터는 컨트롤러에도 붙일 수 있고 핸들러가 우선한다.

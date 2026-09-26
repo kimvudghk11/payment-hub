@@ -6,6 +6,30 @@
 
 ### 2026-09-26
 
+#### feat(admin): 서비스·API 키 관리 API 및 서비스 API 키 인증(ApiKeyGuard) 추가
+- **무엇을**:
+  - 관리자 API: `POST/GET /admin/services`, `GET/PATCH/DELETE /admin/services/:id`, `POST .../suspend`, `.../resume`, `.../webhook-secret/rotate`, `POST/GET .../api-keys`, `POST /admin/api-keys/:id/revoke`
+  - 서비스 등록 시 웹훅 서명 키(`whsec_…`) 자동 발급 → 암호화 저장, 평문은 등록·교체 응답에서 1회만
+  - `AdminAuditService`: 모든 관리 쓰기를 같은 `@Transactional()`에서 기록. 대상 행 `pessimistic_write` 락으로 동시 관리 작업 직렬화
+  - `ApiKeyGuard`: SHA-256 해시 조회 → 폐기/만료/서비스 삭제/정지 거부 → `req.serviceId`, `last_used_at` 비동기 갱신. 전역 `AuthGuard`가 `@ServiceApi`를 위임
+  - `GET /api/v1/me`: 서비스가 자기 키로 연결·인증 상태를 확인하는 첫 서비스 API
+  - `CryptoModule`(전역 `EncryptionService`), `PG_ENVIRONMENT` 검증(`TEST`/`LIVE` 외 값이면 부팅 실패, 미설정 시 TEST), 유니크 위반 판별 유틸, `@CurrentAdminActor`/`@CurrentServiceId`
+  - 통합 테스트 인프라 `test/support/integration-app.ts` (실제 AppModule + 테스트 DB)
+- **왜**:
+  - 서비스가 hub를 호출하려면 "서비스 등록 → 키 발급 → 키 인증"이 먼저 있어야 함 (새 서비스 연동 절차의 첫 두 단계)
+  - 감사 로그와 관리 쓰기를 한 트랜잭션에 묶어 "기록 없는 변경"을 원천 차단. 감사 로그 기록 실패 시 상태 변경 롤백을 테스트로 확인
+  - 코드 중복은 사전 조회로 막고, 사이에 끼어든 동시 등록은 DB 유니크 위반을 잡아 같은 에러 코드로 변환
+  - 삭제된 서비스의 키는 401(존재 숨김), 정지는 403으로 구분해 서비스가 원인을 알 수 있게 함
+  - `last_used_at`은 키 교체 절차(구 키 사용 중단 확인)에 쓰이지만 응답을 늦출 이유는 없어 비동기
+  - LIVE 오타가 조용히 TEST 키 prefix로 바뀌지 않도록 환경 값은 부팅 시 검증
+- **변경 파일**: `src/admin/service/**`, `src/admin/audit/{admin-audit.service,admin-audit.module}.ts`, `src/service/{api-key.guard,service.controller,service.service,service.module}.ts`, `src/service/dto/**`, `src/common/{crypto/crypto.module,config/pg-environment.config,database/unique-violation,decorators/current-actor.decorator}.ts`, `src/common/guards/{auth.guard,auth.module}.ts`, `src/app.module.ts`, `test/admin/admin-service.int-spec.ts`, `test/service/api-key-auth.int-spec.ts`, `test/support/integration-app.ts`, `test/common/auth-guard.spec.ts`, `docs/api.md`, `CLAUDE.md`, `README.md`, `.env.example`
+- **스키마/에러 코드**: 변경 없음
+- **문서**: CLAUDE.md 설계 원칙 8(암호화 키링), 6.5(관리 쓰기 순서·멱등 재요청은 감사 로그 없음), 8장 인증(ApiKeyGuard 거부 순서, 파라미터 데코레이터). `docs/api.md` 2.1·2.2 ✅, 3.0 `GET /me` 추가
+- **남은 작업 / 주의**:
+  - `.env`에 `ENCRYPTION_KEYS`가 없으면 부팅 실패 (README 실행 방법에 생성 명령 추가)
+  - 인증 가드 단위 테스트는 ApiKeyGuard를 대역으로 바꾸고 위임만 검증. 실제 키 검증은 통합 테스트가 담당
+  - 서비스 상세의 키·PG·상품 유형 요약은 PG 자격증명·상품 유형 API 구현 시
+
 #### feat(service): 서비스·API 키 도메인 행위 및 공통 기반(암호화·응답 래퍼·검증 메시지·cursor) 추가
 - **무엇을**:
   - `EncryptionService`: AES-256-GCM + 버전 키링(`v1:<base64>,v2:...`). 암호문 `iv|tag|ciphertext`, 키 ID 함께 반환. 설정 오류(빈 키링, 32바이트 아님, 중복 ID, 현재 키 ID 없음)는 생성 시 실패

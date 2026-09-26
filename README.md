@@ -189,8 +189,10 @@ stateDiagram-v2
 # 1. 의존성 설치
 npm install
 
-# 2. 환경 변수
+# 2. 환경 변수 — ENCRYPTION_KEYS가 비어 있으면 부팅이 실패한다
 cp .env.example .env
+echo "ENCRYPTION_KEYS=v1:$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")" >> .env
+# 관리자 API를 쓰려면 ADMIN_API_KEY_HASHES에 admin 키의 SHA-256 hex를 넣는다
 
 # 3. PostgreSQL 기동 — 최초 기동 시 db/schema.sql이 자동 적용됨
 npm run db:up
@@ -243,8 +245,9 @@ src
 - [x] 공통: 에러 코드·예외 필터, 금액 transformer
 - [x] 인증: 기본 거부 전역 가드, 관리자 인증(AdminGuard)
 - [x] API 명세 ([docs/api.md](./docs/api.md))
-- [ ] 서비스 API 키 인증(ApiKeyGuard)
-- [ ] 서비스·API 키·PG 자격증명 관리 (admin API + 감사 로그)
+- [x] 서비스 API 키 인증(ApiKeyGuard), 연결 확인 `GET /me`
+- [x] 관리자 API: 서비스 등록·수정·정지·재개·삭제, 웹훅 서명 키 교체, API 키 발급·폐기 (감사 로그 같은 트랜잭션)
+- [ ] 관리자 API: PG 자격증명, 상품 유형
 - [ ] 주문 사전 등록 → 결제 승인 → 원장 기장 → outbox
 - [ ] 취소/부분 취소, 빌링 자동결제, 가상계좌
 - [ ] 웹훅 전달 폴러, 대사 배치

@@ -7,7 +7,10 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { setupApp } from '../../src/app.setup';
 import { AdminApi, Public, ServiceApi } from '../../src/common/decorators/auth.decorator';
+import { BusinessException } from '../../src/common/errors/business.exception';
+import { ErrorCode } from '../../src/common/errors/error-code';
 import { AuthModule } from '../../src/common/guards/auth.module';
+import { ApiKeyGuard } from '../../src/service/api-key.guard';
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const ADMIN_KEY = 'admin-key-current';
@@ -59,12 +62,20 @@ class ClassLevelAdminController {
   }
 }
 
+/** ApiKeyGuard 대역: 기본은 거부, 테스트가 한 번씩 통과시킬 수 있다 */
+const apiKeyGuardVerdict = jest.fn<boolean, []>(() => {
+  throw new BusinessException(ErrorCode.UNAUTHORIZED);
+});
+
 const createApp = async (adminKeyHashes: string): Promise<INestApplication<App>> => {
   process.env.ADMIN_API_KEY_HASHES = adminKeyHashes;
   const moduleRef = await Test.createTestingModule({
     imports: [ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }), AuthModule],
     controllers: [GuardTestController, ClassLevelAdminController],
-  }).compile();
+  })
+    .overrideProvider(ApiKeyGuard)
+    .useValue({ canActivate: () => apiKeyGuardVerdict() })
+    .compile();
   const app = moduleRef.createNestApplication<INestApplication<App>>({ logger: false });
   setupApp(app);
   await app.init();
@@ -98,18 +109,23 @@ describe('인증 가드 (기본 거부)', () => {
       expect(codeOf(res)).toBe('UNAUTHORIZED');
     });
 
-    it('@ServiceApi 핸들러는 API 키가 없으면 거부한다', async () => {
-      const res = await http().get('/api/v1/guard-test/service');
+    // ApiKeyGuard 자체(DB 조회·폐기·만료·정지)는 test/service/api-key-auth.int-spec.ts에서 실제 DB로 검증한다
+    it('@ServiceApi 핸들러는 ApiKeyGuard의 판정을 따른다', async () => {
+      apiKeyGuardVerdict.mockReturnValueOnce(true);
+      const allowed = await http().get('/api/v1/guard-test/service');
+      const denied = await http().get('/api/v1/guard-test/service');
 
-      expect(res.status).toBe(401);
-      expect(codeOf(res)).toBe('UNAUTHORIZED');
+      expect(allowed.status).toBe(200);
+      expect(denied.status).toBe(401);
+      expect(codeOf(denied)).toBe('UNAUTHORIZED');
     });
 
-    it('@ServiceApi 핸들러에 admin 키를 보내도 거부한다 (두 키는 섞이지 않음)', async () => {
-      const res = await http().get('/api/v1/guard-test/service').set(adminHeaders);
+    it('@AdminApi 핸들러는 ApiKeyGuard를 거치지 않는다', async () => {
+      apiKeyGuardVerdict.mockClear();
 
-      expect(res.status).toBe(401);
-      expect(codeOf(res)).toBe('UNAUTHORIZED');
+      await http().get('/api/v1/guard-test/admin').set(adminHeaders);
+
+      expect(apiKeyGuardVerdict).not.toHaveBeenCalled();
     });
 
     it('컨트롤러에 붙인 @AdminApi가 핸들러에 적용된다', async () => {

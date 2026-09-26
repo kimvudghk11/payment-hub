@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { ApiKeyGuard } from '../../service/api-key.guard';
 import { AUTH_TYPE_KEY, AuthType } from '../decorators/auth.decorator';
 import { BusinessException } from '../errors/business.exception';
 import { ErrorCode } from '../errors/error-code';
@@ -16,9 +17,10 @@ export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly adminGuard: AdminGuard,
+    private readonly apiKeyGuard: ApiKeyGuard,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> {
     const authType = this.reflector.getAllAndOverride<AuthType | undefined>(AUTH_TYPE_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -30,8 +32,7 @@ export class AuthGuard implements CanActivate {
       case AuthType.ADMIN:
         return this.adminGuard.canActivate(context);
       case AuthType.SERVICE:
-        // ApiKeyGuard(서비스 API 키 검증)가 구현되기 전까지 모든 서비스 API 요청을 거부한다
-        throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        return this.apiKeyGuard.canActivate(context);
       default:
         this.logger.error(
           `인증 데코레이터가 없는 핸들러: ${context.getClass().name}.${context.getHandler().name} — @ServiceApi/@AdminApi/@Public 중 하나를 붙여야 합니다.`,

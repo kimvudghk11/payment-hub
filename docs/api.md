@@ -26,7 +26,7 @@ API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키�
 | 호출자 | 각 서비스 서버 (서버 간 통신 전용) | admin 레포 백엔드 (내부망 전용) |
 | 데이터 범위 | 자기 서비스 것만 | 전 서비스 |
 
-인증 구현 상태: 관리자 인증(`AdminGuard`) ✅ · 서비스 API 키 인증(`ApiKeyGuard`) 🚧 — 구현 전까지 서비스 API는 모두 `401`
+인증 구현 상태: 관리자 인증(`AdminGuard`) ✅ · 서비스 API 키 인증(`ApiKeyGuard`) ✅
 
 **서비스 API 헤더**
 
@@ -129,14 +129,16 @@ API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키�
 
 | 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
 |---|---|---|---|---|
-| `POST` | `/admin/services` | 서비스 등록 | `SERVICE_CREATED` | 🚧 |
-| `GET` | `/admin/services` | 서비스 목록 (`status`, `includeDeleted`) | | 🚧 |
-| `GET` | `/admin/services/:serviceId` | 서비스 상세 (키·PG·상품 유형 요약 포함) | | 🚧 |
-| `PATCH` | `/admin/services/:serviceId` | 이름·웹훅 URL 수정 | `SERVICE_UPDATED` / `WEBHOOK_CONFIG_UPDATED` | 🚧 |
-| `POST` | `/admin/services/:serviceId/suspend` | 서비스 정지 (`reason` 필수) | `SERVICE_SUSPENDED` | 🚧 |
-| `POST` | `/admin/services/:serviceId/resume` | 서비스 재개 | `SERVICE_RESUMED` | 🚧 |
-| `DELETE` | `/admin/services/:serviceId` | 서비스 삭제 (soft delete, `reason` 필수) | `SERVICE_DELETED` | 🚧 |
-| `POST` | `/admin/services/:serviceId/webhook-secret/rotate` | 웹훅 서명 키 교체 | `WEBHOOK_SECRET_ROTATED` | 🚧 |
+| `POST` | `/admin/services` | 서비스 등록 | `SERVICE_CREATED` | ✅ |
+| `GET` | `/admin/services` | 서비스 목록 (`status`, `includeDeleted`) | | ✅ |
+| `GET` | `/admin/services/:serviceId` | 서비스 상세 (서명 키는 발급 여부만) | | ✅ |
+| `PATCH` | `/admin/services/:serviceId` | 이름·웹훅 URL 수정 | `SERVICE_UPDATED` / `WEBHOOK_CONFIG_UPDATED` | ✅ |
+| `POST` | `/admin/services/:serviceId/suspend` | 서비스 정지 (`reason` 필수) | `SERVICE_SUSPENDED` | ✅ |
+| `POST` | `/admin/services/:serviceId/resume` | 서비스 재개 | `SERVICE_RESUMED` | ✅ |
+| `DELETE` | `/admin/services/:serviceId` | 서비스 삭제 (soft delete, `reason` 필수) | `SERVICE_DELETED` | ✅ |
+| `POST` | `/admin/services/:serviceId/webhook-secret/rotate` | 웹훅 서명 키 교체 | `WEBHOOK_SECRET_ROTATED` | ✅ |
+
+**정지·재개·키 폐기는 멱등이다.** 이미 그 상태면 200으로 현재 상태를 돌려주고 감사 로그는 남기지 않는다 (admin 레포 재시도가 에러가 되지 않게).
 
 **정지**되면 API 키가 유효해도 서비스 API 전부 `403 SERVICE_SUSPENDED`. **삭제**는 `deleted_at`만 채우고 결제 이력은 보존하며, 이후 서비스 API는 `401`.
 
@@ -186,9 +188,9 @@ API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키�
 
 | 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
 |---|---|---|---|---|
-| `POST` | `/admin/services/:serviceId/api-keys` | 키 발급 | `API_KEY_ISSUED` | 🚧 |
-| `GET` | `/admin/services/:serviceId/api-keys` | 키 목록 (prefix·hint·만료·마지막 사용 시각만) | | 🚧 |
-| `POST` | `/admin/api-keys/:apiKeyId/revoke` | 키 폐기 | `API_KEY_REVOKED` | 🚧 |
+| `POST` | `/admin/services/:serviceId/api-keys` | 키 발급 | `API_KEY_ISSUED` | ✅ |
+| `GET` | `/admin/services/:serviceId/api-keys` | 키 목록 (prefix·hint·만료·마지막 사용 시각만) | | ✅ |
+| `POST` | `/admin/api-keys/:apiKeyId/revoke` | 키 폐기 | `API_KEY_REVOKED` | ✅ |
 
 #### `POST /admin/services/:serviceId/api-keys` — 키 발급
 
@@ -280,6 +282,30 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 ## 3. 서비스 API (`/api/v1`)
 
 모든 조회·쓰기는 API 키의 서비스로 범위가 고정된다. 다른 서비스의 리소스는 `404`.
+
+### 3.0 연결 확인
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `GET` | `/me` | API 키가 어느 서비스로 인증되는지 확인. 키 교체 후 배포 검증용 | ✅ |
+
+```json
+// 응답 200
+{
+  "success": true,
+  "message": "서비스 정보를 조회했습니다.",
+  "data": { "serviceId": "0b6f...", "code": "SVC_A", "name": "서비스 A", "status": "ACTIVE" }
+}
+```
+
+| 상황 | 응답 |
+|---|---|
+| 키 없음 / 등록되지 않은 키 / 삭제된 서비스의 키 | `401 UNAUTHORIZED` |
+| 폐기된 키 | `401 API_KEY_REVOKED` |
+| 만료된 키 | `401 API_KEY_EXPIRED` |
+| 정지된 서비스 | `403 SERVICE_SUSPENDED` |
+
+인증에 성공하면 키의 `lastUsedAt`이 비동기로 갱신된다.
 
 ### 3.1 PG 설정
 

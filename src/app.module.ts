@@ -4,8 +4,11 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { addTransactionalDataSource } from 'typeorm-transactional';
+import { AdminServiceModule } from './admin/service/admin-service.module';
 import { databaseConfig } from './common/config/database.config';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './common/guards/auth.module';
+import { ServiceModule } from './service/service.module';
 
 @Module({
   imports: [
@@ -20,7 +23,10 @@ import { AuthModule } from './common/guards/auth.module';
       },
     }),
     ScheduleModule.forRoot(),
+    CryptoModule,
     AuthModule,
+    ServiceModule,
+    AdminServiceModule,
   ],
 })
 export class AppModule {}
