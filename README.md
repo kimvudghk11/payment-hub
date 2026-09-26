@@ -247,4 +247,5 @@ src
 - [ ] 웹훅 전달 폴러, 대사 배치
 - [ ] 관리자 조회·운영 API, 매출 리포트
 
-변경 이력과 각 결정의 이유는 [CHANGELOG.md](./CHANGELOG.md)에 남긴다.
+- API 명세: [docs/api.md](./docs/api.md)
+- 변경 이력과 각 결정의 이유: [CHANGELOG.md](./CHANGELOG.md)

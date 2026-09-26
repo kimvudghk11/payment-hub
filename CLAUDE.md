@@ -145,6 +145,9 @@ payment-hub는 **"결제만"** 중앙화한다. 주문 서버를 별도로 두�
 ## 6. 관리자(admin)와 조회 API
 
 payment-hub는 호출 주체가 둘이고, API 표면도 둘로 완전히 나뉜다.
+**엔드포인트별 요청·응답 계약의 기준은 [`docs/api.md`](docs/api.md)다.** API를 추가·변경하면 같은 커밋에서 이 문서의 상태 표시(✅/🚧)와 계약을 갱신한다.
+
+**배포 하나 = PG 환경 하나.** TEST hub와 LIVE hub는 DB까지 분리해 띄우고, 각 배포는 env `PG_ENVIRONMENT`에 맞는 PG 자격증명과 API 키 prefix(`ph_test_` / `ph_live_`)만 쓴다. 결제·원장 테이블에 환경 컬럼이 없는 이유다(테스트 결제가 운영 리포트에 섞이지 않음).
 
 | | 서비스 API | 관리자 API |
 |---|---|---|
@@ -381,7 +384,7 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 
 ### 컨트롤러 / Swagger
 - 모든 핸들러에 `@ApiOperation`, `@ResponseMessage`, `@ApiResponse({ type })`.
-- 응답 형식 `IResponseBase<T>`, 목록은 `IPageable<T>` (`{ data, totalCount }`).
+- 응답 형식 `IResponseBase<T>`, 목록은 `IPageable<T>` (`{ data, totalCount, nextCursor }`).
 
 ### 테스트
 - 도메인 엔티티 메서드는 단위 테스트 필수 (상태 전이, 금액 경계값, 잘못된 전이).

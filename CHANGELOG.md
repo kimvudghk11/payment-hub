@@ -6,6 +6,17 @@
 
 ### 2026-09-26
 
+#### docs: API 명세 문서(docs/api.md) 추가
+- **무엇을**: 관리자 API(서비스 등록·수정·정지·삭제, API 키 발급·폐기, PG 자격증명, 상품 유형 등록·수정·중지, 결제 운영)와 서비스 API(주문, 결제 승인·빌링, 사용자별 결제 조회, 환불 가능 금액, 환불, 빌링키, 이벤트 재조회), hub → 서비스 웹훅 서명 규격, 연동 순서를 한 문서로 정리. API별 구현 상태(✅/🚧) 표시
+- **왜**:
+  - 서비스 개발자와 admin 레포 개발자가 코드 없이 연동 계약을 확인할 수 있어야 함. CLAUDE.md는 원칙 문서라 요청·응답 예시까지 담기엔 컨텍스트 비용이 큼
+  - "서비스 상품 관리" 요구는 hub 책임 경계(상품을 모름)에 맞춰 **상품 유형** 관리로 정리. 삭제 대신 `isActive: false` (주문 항목 FK 참조)
+  - "결제 수단 등록" 요구는 결제 건의 수단 분류(`method.type`, 카드사, 카드 종류 등)와 기존 빌링키 등록으로 정리
+  - 결정 사항: 배포 하나 = PG 환경 하나(`PG_ENVIRONMENT`) — 결제·원장에 환경 컬럼이 없으므로 테스트 결제가 운영 리포트에 섞이지 않게 배포·DB를 분리. 결제 승인 멱등키는 `paymentKey` 기반으로 hub가 생성. 가상계좌 환불 계좌는 토스에 전달만 하고 저장하지 않음(개인정보 최소 보관). 웹훅 서명 `HMAC-SHA256(secret, "<timestamp>.<body>")`
+- **변경 파일**: `docs/api.md`, `CLAUDE.md`, `.env.example`, `README.md`
+- **문서**: CLAUDE.md 6장에 API 계약 기준 문서(`docs/api.md`)와 배포-환경 규칙 추가, 8장 `IPageable`에 `nextCursor` 추가
+- **남은 작업 / 주의**: 문서의 🚧 API는 이후 커밋에서 구현하며 상태 표시를 함께 갱신
+
 #### schema(payment): 결제 수단 분류 컬럼 추가 및 결제 멱등키 서비스 단위 유니크로 변경
 - **무엇을**:
   - `tb_payment`에 결제 수단 분류 컬럼 추가: `method_type`(CHECK), `card_company_code`, `card_type`(CHECK), `card_number_masked`, `installment_months`, `easy_pay_provider`, `bank_code`, `virtual_account_number`, `virtual_account_due_at`

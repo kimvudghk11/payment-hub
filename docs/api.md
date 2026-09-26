@@ -1,0 +1,604 @@
+# payment-hub API 명세
+
+> 연동 서비스 개발자와 admin 레포 개발자를 위한 API 계약서.
+> 설계 원칙과 배경은 [CLAUDE.md](../CLAUDE.md), 스키마는 [db/schema.sql](../db/schema.sql) 참고.
+> 구현 상태는 각 API 옆 표시: ✅ 구현됨 · 🚧 예정
+
+## 목차
+
+1. [공통](#1-공통)
+2. [관리자 API](#2-관리자-api-apiv1admin) — 서비스·키·PG 자격증명·상품 유형·결제 운영
+3. [서비스 API](#3-서비스-api-apiv1) — 주문·결제·환불·조회·빌링키
+4. [hub → 서비스 웹훅](#4-hub--서비스-웹훅)
+5. [연동 순서 예시](#5-연동-순서-예시)
+
+---
+
+## 1. 공통
+
+### 1.1 호출 주체와 인증
+
+API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키는 섞이지 않는다** — 서비스 키로 `/admin/*`를, admin 키로 서비스 API를 호출하면 `401`.
+
+| | 서비스 API | 관리자 API |
+|---|---|---|
+| 경로 | `/api/v1/*` | `/api/v1/admin/*` |
+| 호출자 | 각 서비스 서버 (서버 간 통신 전용) | admin 레포 백엔드 (내부망 전용) |
+| 데이터 범위 | 자기 서비스 것만 | 전 서비스 |
+
+**서비스 API 헤더**
+
+| 헤더 | 필수 | 설명 |
+|---|---|---|
+| `Authorization` | ✅ | `Bearer ph_live_xxxxxxxx...` — admin이 발급한 서비스 API 키 |
+
+**관리자 API 헤더**
+
+| 헤더 | 필수 | 설명 |
+|---|---|---|
+| `Authorization` | ✅ | `Bearer <admin_api_key>` — hub는 env `ADMIN_API_KEY_HASHES`(SHA-256 hex, 쉼표 구분)로 검증 |
+| `X-Admin-Actor-Id` | ✅ | 작업한 관리자 ID (최대 100자). 감사 로그 `actor_id` |
+| `X-Admin-Actor-Name` | | 관리자 이름. URL 인코딩 |
+| `X-Request-Id` | | admin 레포 로그와 연결할 추적 ID |
+
+### 1.2 환경 (TEST / LIVE)
+
+**hub 배포 하나가 PG 환경 하나를 담당한다.** 테스트 hub와 운영 hub는 DB까지 분리해 띄우고,
+각 hub는 env `PG_ENVIRONMENT`(TEST/LIVE)에 맞는 PG 자격증명만 사용한다. 테스트 결제가 운영 원장·리포트에 섞이지 않게 하기 위함이다.
+
+| 환경 | API 키 prefix | 사용하는 PG 자격증명 |
+|---|---|---|
+| TEST | `ph_test_` | `environment = 'TEST'` |
+| LIVE | `ph_live_` | `environment = 'LIVE'` |
+
+### 1.3 응답 형식
+
+**성공**
+
+```json
+{
+  "success": true,
+  "message": "주문이 등록되었습니다.",
+  "data": { }
+}
+```
+
+**목록** — `data`가 아래 형태. cursor 기반 페이징(`created_at DESC, id DESC`)
+
+```json
+{
+  "success": true,
+  "message": "결제 목록을 조회했습니다.",
+  "data": {
+    "data": [ ],
+    "totalCount": 132,
+    "nextCursor": "eyJjcmVhdGVkQXQiOi..."
+  }
+}
+```
+
+| 쿼리 | 설명 |
+|---|---|
+| `limit` | 기본 20, 최대 100 |
+| `cursor` | 이전 응답의 `nextCursor`. 마지막 페이지면 `nextCursor = null` |
+
+**실패** — 영문 `code`로 분기하고, `message`는 사람이 읽는 한국어 설명
+
+```json
+{
+  "success": false,
+  "code": "CANCEL_AMOUNT_EXCEEDED",
+  "message": "환불 가능 금액을 초과했습니다.",
+  "detail": { "refundableAmount": 4000 }
+}
+```
+
+- 검증 실패: `400 INVALID_REQUEST`, `detail.errors = [{ "field": "items.0.quantity", "message": "..." }]`
+- PG 에러: `detail.pgCode`, `detail.pgMessage`에 토스 원본 코드·메시지 (카드 거절 사유를 사용자에게 보여줄 때 사용)
+- 전체 에러 코드: [CLAUDE.md 8장 "기본 에러 코드"](../CLAUDE.md#에러-처리-한국어-메시지)
+
+### 1.4 금액·시간·ID
+
+- **금액은 정수, 통화 최소 단위.** KRW 10,000원 = `10000`, USD $12.34 = `1234`. 소수 금지
+- 시간은 ISO 8601 UTC (`2026-09-26T07:15:22.323Z`). 리포트의 날짜 경계만 KST
+- ID는 uuid. **다른 서비스의 ID로 조회하면 존재 여부를 숨기기 위해 `404`**
+
+### 1.5 멱등성
+
+같은 요청을 다시 보내도 결과는 한 번만 반영된다. **이미 처리된 건은 에러가 아니라 기존 결과를 200으로** 돌려준다.
+키가 같은데 내용이 다르면 `409 *_IDEMPOTENCY_CONFLICT`.
+
+| 요청 | 멱등키 |
+|---|---|
+| 주문 등록 | `(서비스, externalOrderId)` |
+| 결제 승인 | `(서비스, paymentKey)` — hub가 내부 멱등키를 만든다 |
+| 빌링 결제 | `(서비스, idempotencyKey)` — 요청 본문 |
+| 환불 | `(서비스, idempotencyKey)` — 요청 본문 |
+
+---
+
+## 2. 관리자 API (`/api/v1/admin`)
+
+- **모든 쓰기는 같은 트랜잭션에서 감사 로그(`tb_admin_audit_log`)를 남긴다.** 조회는 남기지 않는다
+- 영향이 큰 작업(정지·삭제·수동 환불·PG 자격증명 비활성)은 `reason` 필수 → 없으면 `400 ADMIN_REASON_REQUIRED`
+- 비밀값(API 키·시크릿 키·웹훅 서명 키)은 **발급·등록 직후 응답에서 1회만** 평문으로 나가고, 이후 어떤 응답에도 포함되지 않는다
+
+### 2.1 서비스
+
+| 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
+|---|---|---|---|---|
+| `POST` | `/admin/services` | 서비스 등록 | `SERVICE_CREATED` | 🚧 |
+| `GET` | `/admin/services` | 서비스 목록 (`status`, `includeDeleted`) | | 🚧 |
+| `GET` | `/admin/services/:serviceId` | 서비스 상세 (키·PG·상품 유형 요약 포함) | | 🚧 |
+| `PATCH` | `/admin/services/:serviceId` | 이름·웹훅 URL 수정 | `SERVICE_UPDATED` / `WEBHOOK_CONFIG_UPDATED` | 🚧 |
+| `POST` | `/admin/services/:serviceId/suspend` | 서비스 정지 (`reason` 필수) | `SERVICE_SUSPENDED` | 🚧 |
+| `POST` | `/admin/services/:serviceId/resume` | 서비스 재개 | `SERVICE_RESUMED` | 🚧 |
+| `DELETE` | `/admin/services/:serviceId` | 서비스 삭제 (soft delete, `reason` 필수) | `SERVICE_DELETED` | 🚧 |
+| `POST` | `/admin/services/:serviceId/webhook-secret/rotate` | 웹훅 서명 키 교체 | `WEBHOOK_SECRET_ROTATED` | 🚧 |
+
+**정지**되면 API 키가 유효해도 서비스 API 전부 `403 SERVICE_SUSPENDED`. **삭제**는 `deleted_at`만 채우고 결제 이력은 보존하며, 이후 서비스 API는 `401`.
+
+#### `POST /admin/services` — 서비스 등록
+
+```json
+// 요청
+{
+  "code": "SVC_A",
+  "name": "서비스 A",
+  "webhookUrl": "https://svc-a.example.com/webhooks/payment-hub"
+}
+```
+
+| 필드 | 타입 | 필수 | 규칙 |
+|---|---|---|---|
+| `code` | string | ✅ | 영문 대문자·숫자·`_`, 최대 20자, 전역 유일 → 중복 시 `409 SERVICE_CODE_DUPLICATED` |
+| `name` | string | ✅ | 최대 100자 |
+| `webhookUrl` | string | | `https` URL. 없으면 웹훅을 보내지 않음 |
+
+```json
+// 응답 201 — webhookSecret은 이 응답에서 1회만
+{
+  "success": true,
+  "message": "서비스가 등록되었습니다.",
+  "data": {
+    "serviceId": "0b6f...",
+    "code": "SVC_A",
+    "name": "서비스 A",
+    "status": "ACTIVE",
+    "webhookUrl": "https://svc-a.example.com/webhooks/payment-hub",
+    "webhookSecret": "whsec_9f2c...",
+    "createdAt": "2026-09-26T07:15:22.323Z"
+  }
+}
+```
+
+#### `POST /admin/services/:serviceId/suspend`
+
+```json
+{ "reason": "결제 이상 거래 조사" }
+```
+
+### 2.2 서비스 API 키
+
+서비스가 hub를 호출할 때 `Authorization: Bearer <apiKey>` 헤더에 넣는 키. 서비스당 여러 개를 둘 수 있어 무중단 교체가 가능하다.
+
+| 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
+|---|---|---|---|---|
+| `POST` | `/admin/services/:serviceId/api-keys` | 키 발급 | `API_KEY_ISSUED` | 🚧 |
+| `GET` | `/admin/services/:serviceId/api-keys` | 키 목록 (prefix·hint·만료·마지막 사용 시각만) | | 🚧 |
+| `POST` | `/admin/api-keys/:apiKeyId/revoke` | 키 폐기 | `API_KEY_REVOKED` | 🚧 |
+
+#### `POST /admin/services/:serviceId/api-keys` — 키 발급
+
+```json
+// 요청
+{ "label": "prod-server-1", "expiresAt": "2027-09-26T00:00:00.000Z" }
+```
+
+```json
+// 응답 201 — apiKey 평문은 이 응답에서 1회만. hub는 SHA-256 해시만 저장한다
+{
+  "success": true,
+  "message": "API 키가 발급되었습니다.",
+  "data": {
+    "apiKeyId": "7c1e...",
+    "label": "prod-server-1",
+    "apiKey": "ph_live_4Jt9xQ2mV8...",
+    "keyPrefix": "ph_live_",
+    "keyHint": "a1B9",
+    "expiresAt": "2027-09-26T00:00:00.000Z"
+  }
+}
+```
+
+**키 교체 절차**: 새 키 발급 → 서비스에 배포 → 구 키 `lastUsedAt`이 멈췄는지 목록에서 확인 → 구 키 폐기
+
+### 2.3 PG 자격증명 (토스 키)
+
+| 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
+|---|---|---|---|---|
+| `POST` | `/admin/services/:serviceId/pg-credentials` | 등록 (같은 환경의 기존 활성 키는 같은 트랜잭션에서 비활성) | `PG_CREDENTIAL_REGISTERED` | 🚧 |
+| `GET` | `/admin/services/:serviceId/pg-credentials` | 목록 (mId·clientKey·hint·환경·활성 여부) | | 🚧 |
+| `POST` | `/admin/pg-credentials/:pgCredentialId/deactivate` | 비활성 (`reason` 필수) | `PG_CREDENTIAL_DEACTIVATED` | 🚧 |
+
+#### `POST /admin/services/:serviceId/pg-credentials`
+
+```json
+{
+  "environment": "LIVE",
+  "merchantId": "tosspayments_mid",
+  "clientKey": "live_ck_...",
+  "secretKey": "live_sk_..."
+}
+```
+
+- `secretKey`는 AES-256-GCM으로 암호화해 저장하고, 암호화 키 버전을 `secret_key_id`에 남긴다 (키 교체 대비)
+- 시크릿 키는 **어떤 응답에도 반환하지 않는다.** 응답에는 끝 4자리 `secretKeyHint`만
+
+### 2.4 상품 유형
+
+hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 유형**(`PLAN`, `CREDIT`, `ADDON` ...)만 화이트리스트로 등록하고,
+주문 항목의 `productType`이 여기 없거나 비활성이면 `400 PRODUCT_TYPE_NOT_ALLOWED`.
+
+| 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
+|---|---|---|---|---|
+| `POST` | `/admin/services/:serviceId/product-types` | 등록 | `PRODUCT_TYPE_CREATED` | 🚧 |
+| `GET` | `/admin/services/:serviceId/product-types` | 목록 (`isActive` 필터) | | 🚧 |
+| `PATCH` | `/admin/services/:serviceId/product-types/:code` | 이름 수정, 중지(`isActive: false`), 재개(`isActive: true`) | `PRODUCT_TYPE_UPDATED` | 🚧 |
+
+- **삭제 API는 없다.** 기존 주문 항목이 FK로 참조하므로 `isActive: false`로 중지한다. 중지된 유형은 새 주문에만 쓸 수 없고 기존 결제·환불에는 영향 없음
+
+```json
+// POST 요청
+{ "code": "PLAN", "name": "구독 요금제" }
+
+// PATCH 요청 — 중지
+{ "isActive": false }
+```
+
+### 2.5 결제 조회·운영
+
+| 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
+|---|---|---|---|---|
+| `GET` | `/admin/payments` | 전 서비스 결제 검색 | | 🚧 |
+| `GET` | `/admin/payments/:paymentId` | 결제 상세 — 주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본 | | 🚧 |
+| `POST` | `/admin/payments/:paymentId/cancel` | 수동 환불 (`reason` 필수, `requested_by = ADMIN`) | `PAYMENT_CANCELED_BY_ADMIN` | 🚧 |
+| `GET` | `/admin/ops/unknown-payments` | 대사 대기 결제 (`IN_PROGRESS`·`UNKNOWN` 오래된 순) | | 🚧 |
+| `POST` | `/admin/ops/payments/:paymentId/reconcile` | 수동 대사 (토스 조회로 상태 확정) | `PAYMENT_RECONCILED` | 🚧 |
+| `GET` | `/admin/ops/webhook-deliveries` | 웹훅 전달 내역 (`status=DEAD` 등) | | 🚧 |
+| `POST` | `/admin/ops/webhook-deliveries/:deliveryId/redeliver` | 재전송 (`PENDING`으로, `attemptCount` 유지) | `WEBHOOK_REDELIVERED` | 🚧 |
+| `GET` | `/admin/ops/pg-webhooks` | 토스 웹훅 수신 내역 (`status=FAILED` 등) | | 🚧 |
+| `GET` | `/admin/reports/revenue` | 매출·환불 집계 (서비스별·일별·월별, KST 경계, `methodType`별) | | 🚧 |
+| `GET` | `/admin/audit-logs` | 감사 로그 (actor·대상·서비스·기간) | | 🚧 |
+
+**`GET /admin/payments` 필터**: `serviceId`, `status`, `methodType`, `cardCompanyCode`, `from`, `to`, `externalUserId`, `externalOrderId`, `paymentKey`
+
+---
+
+## 3. 서비스 API (`/api/v1`)
+
+모든 조회·쓰기는 API 키의 서비스로 범위가 고정된다. 다른 서비스의 리소스는 `404`.
+
+### 3.1 PG 설정
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `GET` | `/pg/client-config` | 결제창을 띄울 때 필요한 공개 값 (`clientKey`, `environment`) | 🚧 |
+
+서비스 프론트는 이 `clientKey`로 토스 결제창을 띄운다. 시크릿 키는 hub만 가진다.
+
+### 3.2 주문
+
+결제 전에 **서비스 서버가 주문을 먼저 등록**한다. 금액은 이때 고정되고, 결제 승인 시 이 금액과 대조해 클라이언트 금액 변조를 막는다.
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `POST` | `/orders` | 주문 등록 | 🚧 |
+| `GET` | `/orders/:orderId` | 주문 단건 (항목·결제 포함) | 🚧 |
+| `GET` | `/orders` | 주문 목록 (`externalOrderId`, `externalUserId`, `externalSubscriptionId`, `status`, `from`, `to`) | 🚧 |
+
+#### `POST /orders` — 주문 등록
+
+```json
+{
+  "externalOrderId": "svc-a-order-20260926-0001",
+  "externalUserId": "user-123",
+  "externalSubscriptionId": "sub-77",
+  "orderName": "프로 요금제 1개월 외 1건",
+  "currency": "KRW",
+  "items": [
+    { "productType": "PLAN", "externalProductId": "pro-monthly", "productName": "프로 요금제 1개월", "unitPrice": 29000, "quantity": 1 },
+    { "productType": "ADDON", "externalProductId": "storage-10g", "productName": "추가 저장공간 10GB", "unitPrice": 3000, "quantity": 2 }
+  ],
+  "discountType": "COUPON_WELCOME",
+  "discountAmount": 5000,
+  "totalAmount": 30000,
+  "expiresInSeconds": 1800,
+  "metadata": { "plan": "pro" }
+}
+```
+
+| 검증 | 실패 시 |
+|---|---|
+| `items[].amount = unitPrice × quantity`, `sum(items.amount) − discountAmount = totalAmount` | `400 ORDER_AMOUNT_INVALID` |
+| `productType`이 활성 상품 유형 | `400 PRODUCT_TYPE_NOT_ALLOWED` |
+| 같은 `externalOrderId`로 내용이 다른 주문 존재 | `409 ORDER_IDEMPOTENCY_CONFLICT` (내용이 같으면 기존 주문 200) |
+
+- 할인·금액 계산은 서비스 책임. hub는 합계가 맞는지만 확인하고, `discountType`·`metadata`는 해석 없이 저장한다
+- 응답의 `orderId`를 토스 결제창의 `orderId`로 사용한다
+- `expiresInSeconds`(기본 1800) 이후에는 결제 승인이 `409 ORDER_EXPIRED`
+
+### 3.3 결제
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `POST` | `/payments/confirm` | 일반 결제 승인 (결제창 인증 후) | 🚧 |
+| `POST` | `/payments/billing` | 빌링키 자동결제 | 🚧 |
+| `GET` | `/payments/:paymentId` | 결제 단건 — 수단 분류, 취소 이력, 환불 가능 금액 | 🚧 |
+| `GET` | `/payments` | 결제 목록 — **사용자별 조회** | 🚧 |
+| `GET` | `/payments/:paymentId/refundable` | 환불 가능 금액·항목별 취소 가능 수량 | 🚧 |
+
+#### `POST /payments/confirm` — 결제 승인
+
+```json
+{
+  "orderId": "3f1a...",
+  "paymentKey": "tgen_20260926...",
+  "amount": 30000
+}
+```
+
+| 검증 | 실패 시 |
+|---|---|
+| 주문이 이 서비스 것 | `404 ORDER_NOT_FOUND` |
+| 주문 상태 `PENDING` | `409 ORDER_ALREADY_PAID` 등 |
+| 만료 전 | `409 ORDER_EXPIRED` |
+| `amount == 주문 totalAmount` | `400 PAYMENT_AMOUNT_MISMATCH` |
+| 토스 거절 (한도 초과 등) | `4xx/502` + `detail.pgCode`·`pgMessage` |
+| 토스 응답 지연 | `504 PG_TIMEOUT` — 결제는 `UNKNOWN`으로 남고 대사 배치가 확정. **재시도하지 말고 결과를 조회하거나 웹훅을 기다린다** |
+
+처리 순서: 결제를 `IN_PROGRESS`로 먼저 저장 → 토스 승인 호출 → 결과 반영 + 원장 기장 + 웹훅 이벤트 기록(한 트랜잭션).
+
+```json
+// 응답 200 — 카드 결제
+{
+  "success": true,
+  "message": "결제가 승인되었습니다.",
+  "data": {
+    "paymentId": "a9d2...",
+    "orderId": "3f1a...",
+    "status": "DONE",
+    "amount": 30000,
+    "refundedAmount": 0,
+    "refundableAmount": 30000,
+    "currency": "KRW",
+    "method": {
+      "type": "CARD",
+      "cardCompanyCode": "11",
+      "cardType": "CREDIT",
+      "cardNumberMasked": "4330-12**-****-123*",
+      "installmentMonths": 0
+    },
+    "receiptUrl": "https://dashboard.tosspayments.com/receipt/...",
+    "approvedAt": "2026-09-26T07:16:03.000Z"
+  }
+}
+```
+
+가상계좌는 `status: "WAITING_FOR_DEPOSIT"`와 함께 입금 안내 정보를 준다. 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다.
+
+```json
+"method": {
+  "type": "VIRTUAL_ACCOUNT",
+  "bankCode": "20",
+  "virtualAccountNumber": "X6505636518308",
+  "virtualAccountDueAt": "2026-09-27T14:59:59.000Z"
+}
+```
+
+**`method.type` 값**: `CARD`, `VIRTUAL_ACCOUNT`, `TRANSFER`, `EASY_PAY`, `MOBILE_PHONE`, `GIFT_CERTIFICATE`
+**`method.cardType` 값**: `CREDIT`, `CHECK`, `GIFT`, `UNKNOWN`
+카드사(`cardCompanyCode`)·은행(`bankCode`) 코드와 `easyPayProvider`는 토스 코드 원문이다.
+
+#### `POST /payments/billing` — 자동결제
+
+서비스 배치가 결제 대상·재시도 정책을 판단한 뒤, 주문을 등록하고 호출한다.
+
+```json
+{
+  "orderId": "5b7c...",
+  "billingKeyId": "e21f...",
+  "amount": 29000,
+  "idempotencyKey": "svc-a-billing-sub-77-2026-10"
+}
+```
+
+- 빌링키가 이 서비스·같은 사용자 것이 아니거나 폐기되었으면 `404 BILLING_KEY_NOT_FOUND`
+- 이후 동작·응답은 결제 승인과 같다
+
+#### `GET /payments` — 결제 목록 (사용자별)
+
+| 쿼리 | 설명 |
+|---|---|
+| `externalUserId` | 사용자 ID. **서비스 + 사용자 단위 결제 이력** |
+| `externalOrderId` | 서비스 주문번호 |
+| `externalSubscriptionId` | 구독 결제 체인 (일할 환불 계산용) |
+| `status` | `DONE`, `PARTIAL_CANCELED`, ... (쉼표로 여러 개) |
+| `methodType` | `CARD`, `VIRTUAL_ACCOUNT`, ... |
+| `from`, `to` | 결제 생성 시각 범위 |
+| `limit`, `cursor` | 페이징 |
+
+서비스 응답에서는 PG 응답 원본, 원장 분개, 대사 내부 정보를 **제외**한다.
+
+#### `GET /payments/:paymentId/refundable` — 환불 가능 금액
+
+```json
+{
+  "success": true,
+  "message": "환불 가능 금액을 조회했습니다.",
+  "data": {
+    "paymentId": "a9d2...",
+    "status": "PARTIAL_CANCELED",
+    "amount": 30000,
+    "refundedAmount": 3000,
+    "refundableAmount": 27000,
+    "items": [
+      { "orderItemId": "c1...", "productName": "프로 요금제 1개월", "quantity": 1, "canceledQuantity": 0, "cancelableQuantity": 1 },
+      { "orderItemId": "c2...", "productName": "추가 저장공간 10GB", "quantity": 2, "canceledQuantity": 1, "cancelableQuantity": 1 }
+    ]
+  }
+}
+```
+
+### 3.4 환불
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `POST` | `/payments/:paymentId/cancel` | 전체·부분 환불 | 🚧 |
+
+```json
+{
+  "amount": 3000,
+  "reasonCode": "USER_REQUEST",
+  "reasonDetail": "추가 저장공간 1개 환불",
+  "idempotencyKey": "svc-a-refund-0001",
+  "items": [ { "orderItemId": "c2...", "quantity": 1, "amount": 3000 } ],
+  "refundReceiveAccount": { "bankCode": "20", "accountNumber": "1002...", "holderName": "홍길동" }
+}
+```
+
+| 필드 | 필수 | 설명 |
+|---|---|---|
+| `amount` | ✅ | 환불 금액. **금액 계산(일할 등)은 서비스 책임** |
+| `reasonCode` | ✅ | 서비스 정의 값. hub는 저장만 |
+| `idempotencyKey` | ✅ | 재시도 시 같은 결과 반환 |
+| `items` | | 항목별 취소 수량 기록 (부분 환불 추적용) |
+| `refundReceiveAccount` | 가상계좌만 ✅ | 환불받을 계좌. 토스에 전달만 하고 **hub는 저장하지 않는다** |
+
+| 검증 | 실패 시 |
+|---|---|
+| 취소 가능한 상태 (`DONE`, `PARTIAL_CANCELED`) | `409 PAYMENT_NOT_CANCELABLE` |
+| `amount ≤ refundableAmount` | `400 CANCEL_AMOUNT_EXCEEDED` + `detail.refundableAmount` |
+| 동시 환불 요청 | 결제 행 락으로 직렬화 — 합계가 결제 금액을 넘지 않음 |
+
+응답은 취소 건(`paymentCancelId`, `status`, `amount`)과 갱신된 결제 요약(`refundedAmount`, `refundableAmount`, `status`).
+전액 환불이면 결제 `CANCELED`, 일부면 `PARTIAL_CANCELED`.
+
+### 3.5 결제 수단 (빌링키)
+
+사용자 카드를 등록해 두고 자동결제에 쓰는 수단. 카드번호는 마스킹된 값만 저장하고 빌링키는 암호화한다.
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `POST` | `/billing-keys` | 빌링키 발급 (토스 카드 등록창 인증 후) | 🚧 |
+| `GET` | `/billing-keys` | 사용자 등록 수단 목록 (`externalUserId` 필수) | 🚧 |
+| `DELETE` | `/billing-keys/:billingKeyId` | 등록 해제 (토스 빌링키 삭제 + `REVOKED`) | 🚧 |
+
+```json
+// POST 요청 — customerKey는 서비스가 사용자별로 만든 추측 불가능한 값
+{ "externalUserId": "user-123", "customerKey": "c_8f2a...", "authKey": "bln_..." }
+
+// 응답 data
+{
+  "billingKeyId": "e21f...",
+  "externalUserId": "user-123",
+  "cardCompany": "신한",
+  "cardNumberMasked": "4330-12**-****-123*",
+  "status": "ACTIVE",
+  "createdAt": "2026-09-26T07:20:00.000Z"
+}
+```
+
+빌링키 원문은 **어떤 응답에도 나가지 않는다.** 서비스는 `billingKeyId`로만 자동결제를 요청한다.
+
+### 3.6 이벤트 재조회
+
+| 메서드 | 경로 | 설명 | 상태 |
+|---|---|---|---|
+| `GET` | `/events?after=<eventId>&limit=` | 웹훅을 놓쳤을 때 발생 순서대로 따라잡기 | 🚧 |
+
+---
+
+## 4. hub → 서비스 웹훅
+
+결제 상태가 바뀌면 hub가 서비스의 `webhookUrl`로 `POST`한다. 결제 응답과 별개로 **비동기**로 전달된다.
+
+### 요청
+
+| 헤더 | 설명 |
+|---|---|
+| `X-PaymentHub-Event-Id` | 이벤트 ID. **서비스는 이 값으로 멱등 처리** (같은 이벤트가 여러 번 올 수 있음) |
+| `X-PaymentHub-Timestamp` | 전송 시각 (Unix 초) |
+| `X-PaymentHub-Signature` | `v1=<hex>` — `HMAC-SHA256(webhookSecret, "<timestamp>.<body>")` |
+
+```json
+{
+  "eventId": "d4e5...",
+  "eventType": "PAYMENT_CONFIRMED",
+  "occurredAt": "2026-09-26T07:16:03.000Z",
+  "data": {
+    "paymentId": "a9d2...",
+    "orderId": "3f1a...",
+    "externalOrderId": "svc-a-order-20260926-0001",
+    "externalUserId": "user-123",
+    "status": "DONE",
+    "amount": 30000,
+    "refundedAmount": 0,
+    "methodType": "CARD"
+  }
+}
+```
+
+| `eventType` | 발생 시점 |
+|---|---|
+| `PAYMENT_CONFIRMED` | 결제 승인 완료 (가상계좌는 입금 완료) |
+| `PAYMENT_FAILED` | 결제 실패 확정 (대사 결과 포함) |
+| `PAYMENT_WAITING_FOR_DEPOSIT` | 가상계좌 발급, 입금 대기 |
+| `PAYMENT_CANCELED` | 전체·부분 환불 완료 |
+| `ORDER_EXPIRED` | 결제 없이 주문 만료 |
+
+### 서비스 쪽 처리 규칙
+
+1. 서명과 타임스탬프(5분 이내)를 검증한다
+2. `eventId`로 이미 처리한 이벤트인지 확인한다
+3. **2xx를 빠르게 응답**하고 무거운 후속 작업(프로비저닝 등)은 비동기로 처리한다
+4. 2xx가 아니면 hub가 지수 백오프로 재시도하고, 한도를 넘으면 `DEAD` → admin이 재전송
+5. **후속 처리가 실패해도 hub는 자동 환불하지 않는다.** 서비스가 판단해 `POST /payments/:id/cancel`을 호출한다
+
+---
+
+## 5. 연동 순서 예시
+
+### 새 서비스 온보딩 (admin)
+
+```
+1. POST /admin/services                               → serviceId, webhookSecret
+2. POST /admin/services/:id/pg-credentials            → 토스 키 등록
+3. POST /admin/services/:id/product-types             → PLAN, ADDON ...
+4. POST /admin/services/:id/api-keys                  → apiKey (서비스 서버 env에 저장)
+```
+
+### 일반 결제
+
+```
+서비스 서버  POST /orders                        → orderId
+서비스 프론트 GET /pg/client-config (서버 경유) → 토스 결제창(orderId, amount)
+토스         → 서비스 프론트 successUrl?paymentKey=...&orderId=...&amount=...
+서비스 서버  POST /payments/confirm              → DONE (즉시 응답)
+hub          → 서비스 webhookUrl  PAYMENT_CONFIRMED (비동기)
+```
+
+### 정기결제
+
+```
+서비스 배치  POST /orders           → orderId
+서비스 배치  POST /payments/billing  { orderId, billingKeyId, idempotencyKey }
+```
+
+### 환불
+
+```
+서비스 서버  GET  /payments/:id/refundable  → 환불 가능 금액 확인
+서비스 서버  POST /payments/:id/cancel      { amount, reasonCode, idempotencyKey }
+hub          → PAYMENT_CANCELED 웹훅
+```
