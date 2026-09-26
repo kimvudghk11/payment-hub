@@ -1,6 +1,7 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { BaseEntity } from '../../common/domain/base.entity';
 import { WebhookDeliveryStatus } from '../constants/outbox.constants';
+import type { OutboxEvent } from './outbox-event.entity';
 
 /** hub → 서비스 웹훅 전달 상태(가변). 폴러가 FOR UPDATE SKIP LOCKED로 due 건을 획득한다. */
 @Entity({ name: 'tb_webhook_delivery' })
@@ -39,4 +40,20 @@ export class WebhookDelivery extends BaseEntity {
 
   @Column({ name: 'delivered_at', type: 'timestamptz', nullable: true })
   deliveredAt: Date | null;
+
+  /** 이벤트 발행 시 전달 대상 생성. URL은 발행 시점 값으로 고정해 이후 URL 변경이 과거 이벤트에 영향을 주지 않게 한다 */
+  static pending(event: OutboxEvent, targetUrl: string): WebhookDelivery {
+    const delivery = new WebhookDelivery();
+    delivery.outboxEventId = event.outboxEventId;
+    delivery.serviceId = event.serviceId;
+    delivery.targetUrl = targetUrl;
+    delivery.status = WebhookDeliveryStatus.PENDING;
+    delivery.attemptCount = 0;
+    delivery.nextAttemptAt = event.occurredAt;
+    delivery.lockedUntil = null;
+    delivery.lastHttpStatus = null;
+    delivery.lastError = null;
+    delivery.deliveredAt = null;
+    return delivery;
+  }
 }

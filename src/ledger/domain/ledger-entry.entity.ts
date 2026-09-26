@@ -28,4 +28,19 @@ export class LedgerEntry extends CreatedAtEntity {
   @ManyToOne('LedgerTransaction', (transaction: LedgerTransaction) => transaction.entries)
   @JoinColumn({ name: 'transaction_id', referencedColumnName: 'ledgerTransactionId' })
   transaction: LedgerTransaction;
+
+  static create(
+    transaction: LedgerTransaction,
+    ledgerAccountId: string,
+    direction: LedgerDirection,
+    money: { amount: number; currency: string },
+  ): LedgerEntry {
+    const entry = new LedgerEntry();
+    entry.ledgerTransactionId = transaction.ledgerTransactionId;
+    entry.ledgerAccountId = ledgerAccountId;
+    entry.direction = direction;
+    entry.amount = money.amount;
+    entry.currency = money.currency;
+    return entry;
+  }
 }

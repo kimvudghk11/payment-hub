@@ -25,7 +25,12 @@ describe('ErrorCode', () => {
     expect(ErrorCode.CANCEL_AMOUNT_EXCEEDED.status).toBe(400);
     expect(ErrorCode.PG_TIMEOUT.status).toBe(504);
     expect(ErrorCode.INTERNAL_ERROR.message).toBe('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-    expect(Object.keys(ErrorCode)).toHaveLength(26);
+    expect(Object.keys(ErrorCode)).toHaveLength(27);
+    expect(ErrorCode.PAYMENT_REJECTED).toEqual({
+      code: 'PAYMENT_REJECTED',
+      status: 402,
+      message: '결제 대행사가 결제를 승인하지 않았습니다.',
+    });
     expect(ErrorCode.PRODUCT_TYPE_DUPLICATED).toEqual({
       code: 'PRODUCT_TYPE_DUPLICATED',
       status: 409,

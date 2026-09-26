@@ -85,6 +85,86 @@ export interface ListOrdersQuery {
   cursor?: string;
 }
 
+export type PaymentStatus =
+  | 'IN_PROGRESS'
+  | 'UNKNOWN'
+  | 'WAITING_FOR_DEPOSIT'
+  | 'DONE'
+  | 'PARTIAL_CANCELED'
+  | 'CANCELED'
+  | 'FAILED'
+  | 'ABORTED'
+  | 'EXPIRED';
+
+export type PaymentMethodType =
+  'CARD' | 'VIRTUAL_ACCOUNT' | 'TRANSFER' | 'EASY_PAY' | 'MOBILE_PHONE' | 'GIFT_CERTIFICATE';
+
+export interface Payment {
+  paymentId: string;
+  orderId: string;
+  externalOrderId: string;
+  externalUserId: string;
+  orderName: string;
+  paymentType: 'NORMAL' | 'BILLING';
+  status: PaymentStatus;
+  amount: number;
+  refundedAmount: number;
+  refundableAmount: number;
+  currency: string;
+  /** 해당 수단이 아닌 필드는 null */
+  method: {
+    type: PaymentMethodType | null;
+    raw: string | null;
+    cardCompanyCode: string | null;
+    cardType: 'CREDIT' | 'CHECK' | 'GIFT' | 'UNKNOWN' | null;
+    cardNumberMasked: string | null;
+    installmentMonths: number | null;
+    easyPayProvider: string | null;
+    bankCode: string | null;
+    virtualAccountNumber: string | null;
+    virtualAccountDueAt: string | null;
+  };
+  receiptUrl: string | null;
+  approvedAt: string | null;
+  failure: { code: string; message: string } | null;
+  createdAt: string;
+}
+
+export interface ListPaymentsQuery {
+  externalUserId?: string;
+  externalOrderId?: string;
+  externalSubscriptionId?: string;
+  status?: PaymentStatus[];
+  methodType?: PaymentMethodType;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface Refundable {
+  paymentId: string;
+  status: PaymentStatus;
+  amount: number;
+  refundedAmount: number;
+  /** 환불 요청 amount의 상한 */
+  refundableAmount: number;
+  items: {
+    orderItemId: string;
+    productName: string;
+    unitPrice: number;
+    quantity: number;
+    canceledQuantity: number;
+    cancelableQuantity: number;
+  }[];
+}
+
+/**
+ * 결제 승인 요청 타임아웃. hub는 토스 응답을 최대 30초(TOSS_API_TIMEOUT_MS) 기다리므로 그보다 길게 둔다.
+ * 그래도 타임아웃이 나면 재승인하지 말고 listPayments({ externalOrderId })로 결과를 확인한다.
+ */
+const CONFIRM_TIMEOUT_MS = 60_000;
+
 export class PaymentHubServiceClient {
   constructor(private readonly options: { baseUrl: string; apiKey: string }) {}
 
@@ -115,17 +195,46 @@ export class PaymentHubServiceClient {
     return (await this.call<Page<OrderSummary>>('GET', '/orders', undefined, { ...query })).data;
   }
 
+  /**
+   * 결제 승인. 토스 결제창 successUrl로 받은 paymentKey·orderId·amount를 그대로 넘긴다.
+   * 같은 paymentKey로 다시 호출하면 hub가 기록된 결과를 준다 (토스를 다시 부르지 않음).
+   * 실패 분기 (PaymentHubError.code):
+   *   PAYMENT_REJECTED(402)           토스 거절 — detail.pgMessage를 사용자에게 보여주고 다른 수단으로 재시도 유도
+   *   PG_TIMEOUT(504) / PG_ERROR(502) 결과 불명 — 재승인하지 말고 조회·웹훅으로 확정을 기다린다
+   *   PAYMENT_IN_PROGRESS(409)        이미 처리 중 — 위와 같음
+   */
+  async confirmPayment(input: { orderId: string; paymentKey: string; amount: number }): Promise<Payment> {
+    return (await this.call<Payment>('POST', '/payments/confirm', input, undefined, CONFIRM_TIMEOUT_MS)).data;
+  }
+
+  async getPayment(paymentId: string): Promise<Payment> {
+    return (await this.call<Payment>('GET', `/payments/${paymentId}`)).data;
+  }
+
+  /** 사용자별 결제 이력 등. 실패한 시도도 포함된다 */
+  async listPayments(query: ListPaymentsQuery = {}): Promise<Page<Payment>> {
+    const { status, ...rest } = query;
+    return (await this.call<Page<Payment>>('GET', '/payments', undefined, { ...rest, status: status?.join(',') })).data;
+  }
+
+  /** 환불 전에 상한(refundableAmount)과 항목별 취소 가능 수량을 확인한다 */
+  async getRefundable(paymentId: string): Promise<Refundable> {
+    return (await this.call<Refundable>('GET', `/payments/${paymentId}/refundable`)).data;
+  }
+
   private call<T>(
     method: 'GET' | 'POST',
     path: string,
     body?: unknown,
     query?: Record<string, string | number | undefined>,
+    timeoutMs?: number,
   ) {
     return callPaymentHub<T>(this.options.baseUrl, {
       method,
       path,
       body,
       query,
+      timeoutMs,
       headers: { Authorization: `Bearer ${this.options.apiKey}` },
     });
   }

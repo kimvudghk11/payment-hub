@@ -6,6 +6,34 @@
 
 ### 2026-09-27
 
+#### feat(payment): 결제 승인 API(토스 연동·원장 기장·outbox) 및 결제 조회·환불 가능 금액 API 추가
+- **무엇을**:
+  - `POST /payments/confirm`: (tx1) 주문 행 락 → paymentKey 재요청·살아있는 결제 확인 → 주문 검증(상태·만료·금액) → 결제 `IN_PROGRESS` 선기록 → 토스 승인(트랜잭션 밖) → (tx2) 결과 반영 + 주문 `PAID` + 원장 `PAYMENT_CAPTURED`(차 PG_RECEIVABLE / 대 REVENUE) + outbox 이벤트·웹훅 전달 대상(`PENDING`, URL 스냅샷)
+  - 결과별 처리: 승인 `DONE` / 가상계좌 `WAITING_FOR_DEPOSIT`(원장 없음, 입금 대기 이벤트) / 토스 거절 `FAILED` + `402 PAYMENT_REJECTED`(`detail.pgCode·pgMessage`) / 타임아웃·연결 실패 `UNKNOWN` + `504 PG_TIMEOUT` / 5xx·`ALREADY_PROCESSED_PAYMENT` `UNKNOWN` + `502 PG_ERROR` / 토스 키 인증 실패 `FAILED` + `502 PG_ERROR`
+  - 같은 paymentKey 재요청은 토스를 다시 부르지 않고 기록된 결과(성공·실패)를 반환. 멱등키 = `confirm:` + sha256(paymentKey) (토스 `Idempotency-Key`로도 전달)
+  - `TossPaymentsClient`(`src/pg/`): Basic 인증, `Idempotency-Key`, `AbortSignal.timeout`. 예외 대신 `APPROVED`/`REJECTED`/`UNKNOWN` 결과 반환. env `TOSS_API_BASE_URL`, `TOSS_API_TIMEOUT_MS`(기본 30초)
+  - 결제 수단 분류 `Payment.applyTossPayment`: 토스 method 원문(한·영) → `methodType`, 카드 종류 `신용/체크/기프트` → `CREDIT/CHECK/GIFT/UNKNOWN`, 카드사·은행·간편결제사·가상계좌 정보. 모르는 수단은 `null` + 원문 보존
+  - 도메인: `Payment.startConfirm/applyTossPayment/markFailed/markUnknown/refundableAmount`, `Order.assertConfirmable/markPaid`, `LedgerTransaction.paymentCaptured`, `LedgerEntry.create`, `OutboxEvent.forPayment`, `WebhookDelivery.pending`
+  - 원장 계정은 서비스·코드·통화별로 첫 기장 때 생성 (`INSERT ... ON CONFLICT DO NOTHING`), 계정 코드 상수 `LedgerAccountCode`
+  - `GET /payments/:id`(수단 분류·환불 가능 금액·실패 사유), `GET /payments`(사용자별 이력 — externalUserId·externalOrderId·externalSubscriptionId·상태 쉼표 다중·수단·기간, cursor 페이징, 실패 시도 포함), `GET /payments/:id/refundable`(상한·항목별 취소 가능 수량). 다른 서비스 결제는 `404 PAYMENT_NOT_FOUND`
+  - 연동: `examples/service-client.ts`에 `confirmPayment/getPayment/listPayments/getRefundable` (confirm 타임아웃 60초), 가이드 5.3 결과별 분기 코드·결과 불명 시 확인 절차·5.5 조회, api.md 3.3·4장, OpenAPI 재생성
+  - 테스트 지원: `test/support/fake-toss.ts`(실제 HTTP 가짜 토스), `onboardPayableService` 픽스처, `createIntegrationApp(env)`
+- **왜**:
+  - 외부 호출 전 기록 원칙: 토스 호출 전에 `IN_PROGRESS`를 커밋해 "돈은 나갔는데 기록이 없는" 상태를 만들지 않음. 결과를 모르면 실패로 확정하지 않고 `UNKNOWN`으로 둠 (실패로 두면 사용자가 재결제해 이중 결제 위험)
+  - 에러 응답은 tx2 커밋 뒤에 던짐 — 트랜잭션 안에서 던지면 `FAILED`/`UNKNOWN` 기록이 롤백됨
+  - 주문 행 락: 같은 주문의 동시 승인 요청을 직렬화해 토스 승인이 한 번만 일어나게 함. HTTP 동시 요청 테스트는 락을 빼도 통과해서(요청이 실제로 겹치지 않음), 트랜잭션 안 조회를 늦춘 결정적 테스트를 추가하고 락을 빼면 실패(500, 유니크 위반)하는 것을 확인
+  - 토스 거절을 `PG_ERROR`(502)가 아닌 별도 코드로: 사용자 카드 문제(다른 수단으로 재시도 가능)와 hub·토스 장애(재시도 금지)를 서비스가 `code`만으로 구분할 수 있어야 함. 402는 결제 거절 관례(Payment Required)
+  - `ALREADY_PROCESSED_PAYMENT`는 이전 승인이 성공했을 수 있으므로 실패가 아니라 `UNKNOWN`
+  - 가짜 토스를 목이 아닌 실제 HTTP 서버로: 인증 헤더·타임아웃·비JSON 응답 분류까지 실제 코드 경로로 검증
+  - 예제의 기본 타임아웃(10초)이 hub의 토스 대기(30초)보다 짧으면 서비스가 먼저 끊고 결과를 모르게 됨 → confirm만 60초
+- **변경 파일**: `src/payment/*`, `src/pg/*`, `src/ledger/{ledger.service,ledger.module}.ts`, `src/ledger/domain/*`, `src/ledger/constants/ledger.constants.ts`, `src/outbox/{outbox.service,outbox.module}.ts`, `src/outbox/domain/*`, `src/outbox/constants/outbox.constants.ts`, `src/order/domain/order.entity.ts`, `src/common/errors/error-code.ts`, `src/app.module.ts`, `examples/{http,service-client}.ts`, `test/payment/*`, `test/pg/*`, `test/ledger/*`, `test/outbox/*`, `test/order/order.entity.spec.ts`, `test/docs/example-clients.int-spec.ts`, `test/support/*`, `test/common/error-code.spec.ts`, `docs/*`, `.env.example`, `CLAUDE.md`, `README.md`
+- **스키마/에러 코드**: 스키마 변경 없음. `PAYMENT_REJECTED`(402) 추가
+- **문서**: CLAUDE.md 8장 에러 코드 표·토스 에러 매핑 규칙·서비스 레이어(토스 결과 타입, 주문 행 락)·테스트(가짜 토스, 결정적 동시성 테스트) 갱신
+- **남은 작업 / 주의**:
+  - `UNKNOWN`·오래된 `IN_PROGRESS` 결제를 확정할 대사 배치(토스 조회 API)와 admin 수동 대사는 아직 없음 — 그 전까지 결과 불명 결제는 운영자가 토스 상점관리자에서 확인
+  - 웹훅은 이벤트·전달 대상만 기록되고 실제 발송(폴러)은 다음 단계. 가상계좌 입금(토스 웹훅 수신)도 다음 단계
+  - 토스 실제 API로는 호출해 보지 않음 (가짜 서버로 토스 공식 문서 규격을 재현). `npm run local:onboard`에 토스 테스트 키를 넣으면 실제 테스트 결제로 확인 가능
+
 #### docs: 서비스·admin 연동 가이드, OpenAPI 스펙, 테스트된 예제 코드, 로컬 온보딩 도구 추가
 - **무엇을**:
   - 연동 가이드: `docs/guides/service-integration.md`(받을 값, 호출·재시도 규칙, 결제 흐름, 토스 결제창, 웹훅 수신 구현, 에러 코드별 대응, 운영 체크리스트), `docs/guides/admin-integration.md`(책임 경계, admin 키 발급·교체, 헤더·감사 로그·사유, 온보딩 4단계, 화면별 API 매핑, 키·PG·서명 키 교체 절차)

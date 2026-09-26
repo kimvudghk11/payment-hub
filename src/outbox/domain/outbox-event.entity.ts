@@ -1,5 +1,8 @@
+import { randomUUID } from 'crypto';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
-import { OutboxEventType } from '../constants/outbox.constants';
+import type { Order } from '../../order/domain/order.entity';
+import type { Payment } from '../../payment/domain/payment.entity';
+import { OutboxAggregateType, OutboxEventType } from '../constants/outbox.constants';
 
 /**
  * 결제 "사실"만 담는 불변 이벤트 (Transactional Outbox).
@@ -28,4 +31,32 @@ export class OutboxEvent {
 
   @Column({ name: 'occurred_at', type: 'timestamptz' })
   occurredAt: Date;
+
+  /**
+   * 결제 이벤트. 웹훅 본문의 data가 된다 (docs/api.md 4장).
+   * 서비스가 자기 주문을 찾을 수 있게 외부 ID를 넣고, PG 응답 원본·원장 같은 내부 정보는 넣지 않는다.
+   */
+  static forPayment(eventType: OutboxEventType, payment: Payment, order: Order, occurredAt: Date): OutboxEvent {
+    const event = new OutboxEvent();
+    event.outboxEventId = randomUUID();
+    event.serviceId = payment.serviceId;
+    event.eventType = eventType;
+    event.aggregateType = OutboxAggregateType.PAYMENT;
+    event.aggregateId = payment.paymentId;
+    event.payload = {
+      paymentId: payment.paymentId,
+      orderId: payment.orderId,
+      externalOrderId: order.externalOrderId,
+      externalUserId: order.externalUserId,
+      status: payment.status,
+      amount: payment.amount,
+      refundedAmount: payment.refundedAmount,
+      currency: payment.currency,
+      methodType: payment.methodType,
+      failureCode: payment.failureCode,
+      failureMessage: payment.failureMessage,
+    };
+    event.occurredAt = occurredAt;
+    return event;
+  }
 }

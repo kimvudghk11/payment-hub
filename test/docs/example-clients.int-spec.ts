@@ -2,6 +2,7 @@ import { AddressInfo } from 'net';
 import { PaymentHubAdminClient } from '../../examples/admin-client';
 import { PaymentHubError } from '../../examples/http';
 import { PaymentHubServiceClient } from '../../examples/service-client';
+import { FakeToss } from '../support/fake-toss';
 import { ADMIN_KEY, IntegrationApp, createIntegrationApp, uniqueServiceCode } from '../support/integration-app';
 
 /**
@@ -9,21 +10,24 @@ import { ADMIN_KEY, IntegrationApp, createIntegrationApp, uniqueServiceCode } fr
  * 가이드의 "온보딩 → 연결 확인 → 주문 등록" 흐름을 그대로 따라간다.
  */
 describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', () => {
+  const toss = new FakeToss();
   let ctx: IntegrationApp;
   let admin: PaymentHubAdminClient;
   let baseUrl: string;
   const actor = { actorId: 'admin-7', actorName: '홍길동', requestId: 'req-example' };
 
   beforeAll(async () => {
-    ctx = await createIntegrationApp();
+    ctx = await createIntegrationApp({ TOSS_API_BASE_URL: await toss.start() });
     await ctx.app.listen(0, '127.0.0.1');
     const server = ctx.app.getHttpServer() as unknown as { address(): AddressInfo };
     baseUrl = `http://127.0.0.1:${server.address().port}`;
     admin = new PaymentHubAdminClient({ baseUrl, adminKey: ADMIN_KEY });
   });
 
+  afterEach(() => toss.reset());
   afterAll(async () => {
     await ctx.app.close();
+    await toss.close();
   });
 
   /** admin 가이드의 온보딩 절차 */
@@ -73,6 +77,42 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(retry).toMatchObject({ created: false, order: { orderId: first.order.orderId } });
     expect(fetched.items).toHaveLength(1);
     expect(page.data.map((o) => o.orderId)).toEqual([first.order.orderId]);
+  });
+
+  it('주문 등록 → 결제 승인 → 결제 조회·사용자별 이력·환불 가능 금액', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    const { order } = await client.createOrder(orderInput('ex-pay-1'));
+
+    // 토스 successUrl로 받은 값을 그대로 전달
+    const payment = await client.confirmPayment({ orderId: order.orderId, paymentKey: 'tgen_ex_1', amount: 10000 });
+    const again = await client.confirmPayment({ orderId: order.orderId, paymentKey: 'tgen_ex_1', amount: 10000 });
+    const history = await client.listPayments({ externalUserId: 'user-1', status: ['DONE', 'PARTIAL_CANCELED'] });
+    const refundable = await client.getRefundable(payment.paymentId);
+
+    expect(payment).toMatchObject({ status: 'DONE', amount: 10000, method: { type: 'CARD', cardType: 'CREDIT' } });
+    expect(again.paymentId).toBe(payment.paymentId);
+    expect(await client.getPayment(payment.paymentId)).toMatchObject({ externalOrderId: 'ex-pay-1' });
+    expect(history.data.map((p) => p.paymentId)).toEqual([payment.paymentId]);
+    expect(refundable).toMatchObject({ refundableAmount: 10000, items: [{ cancelableQuantity: 1 }] });
+  });
+
+  it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    const { order } = await client.createOrder(orderInput('ex-pay-2'));
+    toss.respond(() => ({ status: 403, body: { code: 'REJECT_CARD_PAYMENT', message: '한도초과 혹은 잔액부족' } }));
+
+    const error = await client
+      .confirmPayment({ orderId: order.orderId, paymentKey: 'tgen_ex_2', amount: 10000 })
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(PaymentHubError);
+    expect(error).toMatchObject({
+      status: 402,
+      code: 'PAYMENT_REJECTED',
+      detail: { pgCode: 'REJECT_CARD_PAYMENT', pgMessage: '한도초과 혹은 잔액부족' },
+    });
   });
 
   it('실패는 PaymentHubError(status, code, detail)로 받아 code로 분기할 수 있다', async () => {

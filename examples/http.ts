@@ -25,6 +25,8 @@ export interface RequestOptions {
   headers: Record<string, string>;
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
+  /** 기본 10초. 결제 승인처럼 hub가 PG를 기다리는 요청은 더 길게 준다 */
+  timeoutMs?: number;
 }
 
 export interface HttpResult<T> {
@@ -44,7 +46,7 @@ export async function callPaymentHub<T>(baseUrl: string, options: RequestOptions
     method: options.method,
     headers: { 'Content-Type': 'application/json', ...options.headers },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+    signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
   });
 
   const payload = (await response.json()) as

@@ -17,3 +17,10 @@ export const WebhookDeliveryStatus = {
   DEAD: 'DEAD',
 } as const;
 export type WebhookDeliveryStatus = (typeof WebhookDeliveryStatus)[keyof typeof WebhookDeliveryStatus];
+
+/** tb_outbox_event.aggregate_type */
+export const OutboxAggregateType = {
+  ORDER: 'ORDER',
+  PAYMENT: 'PAYMENT',
+  PAYMENT_CANCEL: 'PAYMENT_CANCEL',
+} as const;

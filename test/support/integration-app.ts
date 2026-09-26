@@ -25,9 +25,9 @@ export interface IntegrationApp {
 
 /**
  * 실제 AppModule + 테스트 DB(globalSetup이 schema.sql로 만든 DB)로 앱을 띄운다.
- * typeorm-transactional 제약으로 테스트 파일당 한 번만 호출한다.
+ * typeorm-transactional 제약으로 테스트 파일당 한 번만 호출한다. env로 설정을 덮어쓸 수 있다 (예: 가짜 토스 주소).
  */
-export const createIntegrationApp = async (): Promise<IntegrationApp> => {
+export const createIntegrationApp = async (env: Record<string, string> = {}): Promise<IntegrationApp> => {
   const db = testDbConfig();
   Object.assign(process.env, {
     DB_HOST: db.host,
@@ -39,6 +39,7 @@ export const createIntegrationApp = async (): Promise<IntegrationApp> => {
     ADMIN_API_KEY_HASHES: createHash('sha256').update(ADMIN_KEY).digest('hex'),
     ENCRYPTION_KEYS: `v1:${randomBytes(32).toString('base64')}`,
     ENCRYPTION_KEY_ID: 'v1',
+    ...env,
   });
 
   initializeTransactionalContext();

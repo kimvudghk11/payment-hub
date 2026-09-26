@@ -37,9 +37,10 @@
 | 연결 확인 | `GET /me` | ✅ |
 | 결제창 설정 | `GET /pg/client-config` | ✅ |
 | 주문 등록·조회 | `POST /orders`, `GET /orders`, `GET /orders/:id` | ✅ |
-| 결제 승인·조회·환불 | `POST /payments/confirm`, `GET /payments`, `POST /payments/:id/cancel` … | 🚧 |
+| 결제 승인·조회 | `POST /payments/confirm`, `GET /payments`, `GET /payments/:id`, `GET /payments/:id/refundable` | ✅ |
+| 환불 | `POST /payments/:id/cancel` | 🚧 |
 | 정기결제·빌링키 | `POST /payments/billing`, `/billing-keys` | 🚧 |
-| 웹훅 발송 | hub → 서비스 | 🚧 (서명 규격·검증 코드는 확정 ✅) |
+| 웹훅 발송 | hub → 서비스 | 🚧 (이벤트 기록·서명 규격·검증 코드는 ✅) |
 
 ---
 
@@ -117,7 +118,7 @@ Content-Type: application/json
 | 요청 | 멱등키 | 재시도 결과 |
 |---|---|---|
 | 주문 등록 | `externalOrderId` | 같은 내용이면 기존 주문 `200` (새로 만들면 `201`) / 다르면 `409` |
-| 결제 승인 🚧 | `paymentKey` | 기존 결과 |
+| 결제 승인 | `paymentKey` | 기록된 결과 (성공·실패 모두. 토스를 다시 부르지 않음) |
 | 자동결제 🚧 | `idempotencyKey` | 기존 결과 |
 | 환불 🚧 | `idempotencyKey` | 기존 결과 |
 
@@ -180,7 +181,7 @@ sequenceDiagram
     F->>T: 결제창 (토스 SDK)
     T-->>F: successUrl?paymentKey&orderId&amount
     F->>S: paymentKey, orderId, amount
-    S->>H: POST /payments/confirm 🚧
+    S->>H: POST /payments/confirm
     H->>T: 승인
     H-->>S: DONE (즉시 응답)
     H-)S: 웹훅 PAYMENT_CONFIRMED (비동기) 🚧
@@ -228,25 +229,82 @@ await payment.requestPayment({
 });
 ```
 
-### 5.3 결제 승인 🚧 (서비스 서버)
+### 5.3 결제 승인 ✅ (서비스 서버)
 
 `successUrl`로 돌아온 `paymentKey`, `orderId`, `amount`를 **서비스 서버**가 hub에 보낸다. hub가 주문 금액과 대조하므로 URL의 amount를 조작해도 결제되지 않는다.
-요청·응답·에러는 [api.md 3.3](../api.md#33-결제) 참고.
+
+```ts
+import { PaymentHubError } from './http';
+
+// successUrl 핸들러 (서비스 서버)
+try {
+  const payment = await paymentHub.confirmPayment({ paymentKey, orderId, amount: Number(amount) });
+  if (payment.status === 'DONE') return showComplete(payment);
+  if (payment.status === 'WAITING_FOR_DEPOSIT') return showDepositGuide(payment.method); // 가상계좌 안내
+} catch (error) {
+  if (!(error instanceof PaymentHubError)) throw error; // 서비스 쪽 네트워크 타임아웃 → 아래 "결과를 모를 때"
+  switch (error.code) {
+    case 'PAYMENT_REJECTED':          // 402 토스 거절 (한도 초과 등)
+      return showFailure(String(error.detail?.pgMessage)); // 토스 사유를 그대로 보여주고, 다시 결제창을 띄우게 한다
+    case 'PG_TIMEOUT':                // 504 결과 불명
+    case 'PG_ERROR':                  // 502 결과 불명(UNKNOWN) 또는 hub 설정 문제(FAILED)
+    case 'PAYMENT_IN_PROGRESS':       // 409 이미 처리 중
+      return showPending(String(error.detail?.paymentId)); // 재승인하지 말고 결과 확정을 기다린다
+    case 'ORDER_EXPIRED':             // 409 새 주문부터 다시
+    case 'ORDER_ALREADY_PAID':        // 409 이미 결제됨 — 주문 상태 확인
+    case 'PAYMENT_AMOUNT_MISMATCH':   // 400 금액 변조 의심
+    default:
+      throw error;
+  }
+}
+```
+
+| 응답 | 의미 | 할 일 |
+|---|---|---|
+| `200 DONE` | 승인 완료 | 완료 처리 |
+| `200 WAITING_FOR_DEPOSIT` | 가상계좌 발급 | `method.virtualAccountNumber`·`virtualAccountDueAt` 안내 |
+| `402 PAYMENT_REJECTED` | 토스 거절 확정. 돈이 나가지 않음 | `detail.pgMessage` 표시 → 사용자가 **새 결제창(새 paymentKey)으로 재시도** 가능 |
+| `504 PG_TIMEOUT` / `502 PG_ERROR` / `409 PAYMENT_IN_PROGRESS` | 결과 불명 — hub가 `UNKNOWN`으로 기록 | **다시 승인하지 않는다.** `detail.paymentId`로 조회하거나 웹훅을 기다린다 |
+
+- **같은 `paymentKey`로 다시 보내는 것은 안전하다.** hub가 토스를 다시 부르지 않고 기록된 결과(성공이든 실패든)를 돌려준다
+- 동시에 여러 번 보내도 토스 승인은 한 번이다 (hub가 주문 단위로 직렬화)
+- **confirm 호출 타임아웃은 60초 이상**으로 둔다. hub가 토스 응답을 최대 30초 기다리기 때문이다 (예제 클라이언트는 60초)
+
+#### 결과를 모를 때 (UNKNOWN, 서비스 쪽 타임아웃)
+
+1. `GET /payments?externalOrderId=<서비스 주문번호>`로 해당 주문의 결제를 조회한다
+2. `DONE`이면 완료, `FAILED`면 실패 처리, `IN_PROGRESS`·`UNKNOWN`이면 사용자에게 "결제 확인 중"을 보여주고 잠시 뒤 다시 조회한다
+3. `UNKNOWN`은 대사(토스 조회로 확정)가 결론을 낸다 (자동 대사 배치·admin 수동 대사 API는 🚧 — 그 전까지는 hub 운영자가 토스 개발자센터·상점관리자에서 확인한다)
+
+요청·응답·에러 전체는 [api.md 3.3](../api.md#33-결제) 참고.
 
 ### 5.4 결제 후 처리
 
-응답(`DONE`)을 받으면 사용자에게 완료 화면을 보여주고, **이용권 지급 같은 후속 처리는 웹훅 `PAYMENT_CONFIRMED`를 기준으로** 한다.
-응답과 웹훅 중 먼저 온 쪽에서 처리하되 `paymentId` 기준으로 한 번만 처리되게 만든다.
-가상계좌는 응답이 `WAITING_FOR_DEPOSIT`이고, 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다.
+응답(`DONE`)을 받으면 사용자에게 완료 화면을 보여주고, 이용권 지급 같은 후속 처리를 한다.
+**지금은 웹훅 발송이 🚧이므로 confirm 응답과 `GET /payments/:id`를 기준으로 처리한다.** 이벤트 자체는 이미 기록되고 있어서, 발송이 구현되면 그 시점부터 `PAYMENT_CONFIRMED`가 전달된다.
+웹훅 발송 이후에는 응답과 웹훅 중 먼저 온 쪽에서 처리하되 `paymentId` 기준으로 한 번만 처리되게 만든다.
+가상계좌는 응답이 `WAITING_FOR_DEPOSIT`이고, 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다 (토스 입금 웹훅 수신은 🚧).
+
+### 5.5 결제 조회 ✅
+
+```ts
+const payment = await paymentHub.getPayment(paymentId);                    // 단건 (수단 분류·환불 가능 금액·실패 사유)
+const history = await paymentHub.listPayments({ externalUserId: user.id }); // 사용자별 결제 이력 (실패 시도 포함, 최신순)
+const paid = await paymentHub.listPayments({ externalUserId: user.id, status: ['DONE', 'PARTIAL_CANCELED'] });
+const refundable = await paymentHub.getRefundable(paymentId);              // 환불 전 상한·항목별 취소 가능 수량
+```
+
+- 다른 서비스의 결제 ID는 `404 PAYMENT_NOT_FOUND` — 존재 여부도 드러나지 않는다
+- 결제 수단 분류(`method.type`, `cardType`, `cardCompanyCode` ...)로 "카드/가상계좌별" 화면을 만들 수 있다
 
 ---
 
 ## 6. 정기결제·환불
 
-계약은 확정, 구현 예정 🚧. 흐름만 먼저 설계에 반영해 둔다.
+계약은 확정, 구현 예정 🚧 (환불 가능 금액 조회만 ✅). 흐름만 먼저 설계에 반영해 둔다.
 
 - **정기결제**: 사용자 카드 등록(빌링키) → 서비스 배치가 결제일·재시도를 판단 → `POST /orders` → `POST /payments/billing { orderId, billingKeyId, idempotencyKey }`. 멱등키는 `구독ID-결제회차`처럼 재시도에도 같은 값
-- **환불**: `GET /payments/:id/refundable`로 환불 가능 금액 확인 → 서비스가 금액 계산(일할 등) → `POST /payments/:id/cancel { amount, reasonCode, idempotencyKey, items? }`
+- **환불**: `GET /payments/:id/refundable` ✅로 환불 가능 금액 확인 → 서비스가 금액 계산(일할 등) → `POST /payments/:id/cancel { amount, reasonCode, idempotencyKey, items? }`
 - **후속 처리 실패 시 hub는 자동 환불하지 않는다.** 이용권 지급이 실패하면 서비스가 판단해 환불 API를 호출한다
 
 ---
@@ -330,11 +388,14 @@ app.post('/webhooks/payment-hub', express.raw({ type: 'application/json' }), asy
 | `ORDER_IDEMPOTENCY_CONFLICT` | 409 | 같은 주문번호로 다른 내용 | 주문번호 생성 로직 확인 (재사용 금지) |
 | `ORDER_NOT_FOUND` | 404 | 없는 주문·다른 서비스 주문 | orderId 확인 |
 | `ORDER_EXPIRED` | 409 | 결제 가능 시간 초과 | 새 주문 등록 후 다시 결제 |
+| `ORDER_ALREADY_PAID` | 409 | 이미 결제된 주문에 다른 paymentKey로 승인 | 주문 상태 확인. 이중 결제 방지 동작 |
 | `PAYMENT_AMOUNT_MISMATCH` | 400 | 승인 금액 ≠ 주문 금액 | 변조 의심. 결제 중단 |
-| `PAYMENT_IN_PROGRESS` | 409 | 같은 주문 결제 처리 중 | 잠시 후 결과 조회 |
+| `PAYMENT_IN_PROGRESS` | 409 | 같은 주문 결제 처리 중·결과 불명 | **재승인 금지.** `detail.paymentId`로 결과 조회 |
+| `PAYMENT_REJECTED` | 402 | 토스 거절 (카드 한도 초과 등) | `detail.pgMessage`를 사용자에게 안내. 새 결제창으로 재시도 가능 |
+| `PAYMENT_NOT_FOUND` | 404 | 없는 결제·다른 서비스 결제 | paymentId 확인 |
 | `PG_CREDENTIAL_NOT_FOUND` | 500 | hub에 토스 키 미등록 | admin 문의 |
-| `PG_TIMEOUT` | 504 | 토스 응답 지연 | **재시도 금지.** 조회·웹훅으로 결과 확인 |
-| `PG_ERROR` | 502 | 토스 거절 등 | `detail.pgMessage`를 사용자에게 안내 (카드 한도 초과 등) |
+| `PG_TIMEOUT` | 504 | 토스 응답 지연·연결 실패 (결제 `UNKNOWN`) | **재시도 금지.** `detail.paymentId`로 조회·웹훅으로 결과 확인 |
+| `PG_ERROR` | 502 | 토스 5xx(결제 `UNKNOWN`) 또는 hub의 토스 키 문제(`FAILED`, `detail.pgCode`) | `detail.paymentStatus`가 `UNKNOWN`이면 재시도 금지·결과 조회, `FAILED`면 admin 문의 |
 | `INTERNAL_ERROR` | 500 | hub 내부 오류 | 백오프 후 재시도, 계속되면 문의 |
 
 ---
@@ -345,6 +406,8 @@ app.post('/webhooks/payment-hub', express.raw({ type: 'application/json' }), asy
 - [ ] 금액은 서버에서 계산해 주문 등록하고, 프론트 금액을 신뢰하지 않는다
 - [ ] `externalOrderId`는 주문마다 유일하고, 재시도 시 같은 값을 쓴다
 - [ ] 에러 분기는 `code`로 한다
+- [ ] 결제 승인 호출 타임아웃이 60초 이상이고, `PG_TIMEOUT`·`PG_ERROR`·`PAYMENT_IN_PROGRESS`에서 재승인하지 않는다
+- [ ] 결제 결과를 모를 때 `GET /payments?externalOrderId=`로 확인하는 경로가 있다
 - [ ] 웹훅: 원문 본문으로 서명 검증, `eventId` 중복 제거, 빠른 2xx 응답
 - [ ] 이용권 지급은 `paymentId` 기준으로 한 번만 된다 (응답·웹훅 중복 대비)
 - [ ] `GET /me`를 배포 헬스체크에 넣었다

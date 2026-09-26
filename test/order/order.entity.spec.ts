@@ -154,3 +154,49 @@ describe('Order.matches (주문 등록 멱등 비교)', () => {
     expect(order.matches(params(overrides))).toBe(false);
   });
 });
+
+describe('Order.assertConfirmable (결제 승인 전 검증)', () => {
+  const NOW = new Date('2026-09-27T01:00:00.000Z');
+
+  it('PENDING·만료 전·금액 일치면 통과', () => {
+    expect(() => Order.create(params()).assertConfirmable(30000, NOW)).not.toThrow();
+  });
+
+  it('금액이 다르면 400 PAYMENT_AMOUNT_MISMATCH', () => {
+    expectBusinessError(() => Order.create(params()).assertConfirmable(29999, NOW), 'PAYMENT_AMOUNT_MISMATCH');
+  });
+
+  it('만료 시각이 지났으면 409 ORDER_EXPIRED (만료 배치가 아직 안 돌았어도)', () => {
+    expectBusinessError(() => Order.create(params()).assertConfirmable(30000, EXPIRES_AT), 'ORDER_EXPIRED');
+  });
+
+  it('EXPIRED 주문은 409 ORDER_EXPIRED', () => {
+    const order = Order.create(params());
+    order.status = OrderStatus.EXPIRED;
+    expectBusinessError(() => order.assertConfirmable(30000, NOW), 'ORDER_EXPIRED');
+  });
+
+  it.each([OrderStatus.PAID, OrderStatus.PARTIAL_CANCELED, OrderStatus.CANCELED])(
+    '%s 주문은 409 ORDER_ALREADY_PAID',
+    (status) => {
+      const order = Order.create(params());
+      order.status = status;
+      expectBusinessError(() => order.assertConfirmable(30000, NOW), 'ORDER_ALREADY_PAID');
+    },
+  );
+});
+
+describe('Order.markPaid', () => {
+  it('PENDING → PAID, 결제 시각 기록', () => {
+    const order = Order.create(params());
+    const paidAt = new Date('2026-09-27T01:16:03.000Z');
+    order.markPaid(paidAt);
+    expect(order).toMatchObject({ status: OrderStatus.PAID, paidAt });
+  });
+
+  it('PENDING이 아니면 전이할 수 없다', () => {
+    const order = Order.create(params());
+    order.markPaid(new Date());
+    expect(() => order.markPaid(new Date())).toThrow('PAID');
+  });
+});

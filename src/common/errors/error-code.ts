@@ -33,6 +33,8 @@ const ERROR_DEFINITIONS = {
   PAYMENT_IN_PROGRESS: { status: 409, message: '결제가 처리 중입니다. 잠시 후 결과를 확인해주세요.' },
   PAYMENT_NOT_CANCELABLE: { status: 409, message: '취소할 수 없는 결제 상태입니다.' },
   CANCEL_AMOUNT_EXCEEDED: { status: 400, message: '환불 가능 금액을 초과했습니다.' },
+  /** 토스가 승인을 거절 (카드 한도 초과 등). detail.pgCode·pgMessage로 사유 전달 */
+  PAYMENT_REJECTED: { status: 402, message: '결제 대행사가 결제를 승인하지 않았습니다.' },
   BILLING_KEY_NOT_FOUND: { status: 404, message: '등록된 자동결제 수단을 찾을 수 없습니다.' },
 
   // PG

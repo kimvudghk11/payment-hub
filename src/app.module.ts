@@ -9,6 +9,7 @@ import { databaseConfig } from './common/config/database.config';
 import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './common/guards/auth.module';
 import { OrderModule } from './order/order.module';
+import { PaymentModule } from './payment/payment.module';
 import { ServiceModule } from './service/service.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { ServiceModule } from './service/service.module';
     AuthModule,
     ServiceModule,
     OrderModule,
+    PaymentModule,
     AdminServiceModule,
   ],
 })

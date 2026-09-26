@@ -34,3 +34,55 @@ export const auditActionsOf = async (ctx: IntegrationApp, targetId: string): Pro
       [targetId],
     )
   ).map((row) => row.action);
+
+export interface PayableService {
+  serviceId: string;
+  apiKey: string;
+  /** 가짜 토스가 받은 Basic 인증을 검증할 때 사용 */
+  tossSecretKey: string;
+}
+
+/**
+ * 결제까지 가능한 서비스: 서비스 등록(webhookUrl) → 토스 키 → 상품 유형 PLAN → API 키.
+ * docs/guides/admin-integration.md의 온보딩 순서 그대로.
+ */
+export const onboardPayableService = async (
+  ctx: IntegrationApp,
+  options: { webhookUrl?: string | null } = {},
+): Promise<PayableService> => {
+  const suffix = uniqueServiceCode().toLowerCase();
+  const created = await ctx
+    .http()
+    .post('/api/v1/admin/services')
+    .set(adminHeaders)
+    .send({
+      code: uniqueServiceCode(),
+      name: '결제 테스트 서비스',
+      webhookUrl:
+        options.webhookUrl === undefined ? 'https://svc.example.com/webhooks/payment-hub' : options.webhookUrl,
+    });
+  if (created.status !== 201) throw new Error(`서비스 등록 실패: ${created.status} ${JSON.stringify(created.body)}`);
+  const { serviceId } = dataOf<CreatedService>(created);
+
+  const tossSecretKey = `test_sk_${suffix}`;
+  const credential = await ctx
+    .http()
+    .post(`/api/v1/admin/services/${serviceId}/pg-credentials`)
+    .set(adminHeaders)
+    .send({
+      environment: 'TEST',
+      merchantId: 'tosspayments',
+      clientKey: `test_ck_${suffix}`,
+      secretKey: tossSecretKey,
+    });
+  if (credential.status !== 201) throw new Error(`PG 키 등록 실패: ${credential.status}`);
+
+  const productType = await ctx
+    .http()
+    .post(`/api/v1/admin/services/${serviceId}/product-types`)
+    .set(adminHeaders)
+    .send({ code: 'PLAN', name: '요금제' });
+  if (productType.status !== 201) throw new Error(`상품 유형 등록 실패: ${productType.status}`);
+
+  return { serviceId, apiKey: await issueApiKey(ctx, serviceId), tossSecretKey };
+};

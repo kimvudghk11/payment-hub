@@ -423,13 +423,15 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| `POST` | `/payments/confirm` | 일반 결제 승인 (결제창 인증 후) | 🚧 |
+| `POST` | `/payments/confirm` | 일반 결제 승인 (결제창 인증 후) | ✅ |
 | `POST` | `/payments/billing` | 빌링키 자동결제 | 🚧 |
-| `GET` | `/payments/:paymentId` | 결제 단건 — 수단 분류, 취소 이력, 환불 가능 금액 | 🚧 |
-| `GET` | `/payments` | 결제 목록 — **사용자별 조회** | 🚧 |
-| `GET` | `/payments/:paymentId/refundable` | 환불 가능 금액·항목별 취소 가능 수량 | 🚧 |
+| `GET` | `/payments/:paymentId` | 결제 단건 — 수단 분류, 환불 가능 금액, 실패 사유 (취소 이력은 환불 구현 시 추가) | ✅ |
+| `GET` | `/payments` | 결제 목록 — **사용자별 조회** | ✅ |
+| `GET` | `/payments/:paymentId/refundable` | 환불 가능 금액·항목별 취소 가능 수량 | ✅ |
 
 #### `POST /payments/confirm` — 결제 승인
+
+토스 결제창 `successUrl`로 받은 세 값을 그대로 보낸다.
 
 ```json
 {
@@ -439,25 +441,65 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 }
 ```
 
-| 검증 | 실패 시 |
-|---|---|
-| 주문이 이 서비스 것 | `404 ORDER_NOT_FOUND` |
-| 주문 상태 `PENDING` | `409 ORDER_ALREADY_PAID` 등 |
-| 만료 전 | `409 ORDER_EXPIRED` |
-| `amount == 주문 totalAmount` | `400 PAYMENT_AMOUNT_MISMATCH` |
-| 토스 거절 (한도 초과 등) | `4xx/502` + `detail.pgCode`·`pgMessage` |
-| 토스 응답 지연 | `504 PG_TIMEOUT` — 결제는 `UNKNOWN`으로 남고 대사 배치가 확정. **재시도하지 말고 결과를 조회하거나 웹훅을 기다린다** |
+| 필드 | 타입 | 필수 | 규칙 |
+|---|---|---|---|
+| `orderId` | uuid | ✅ | hub 주문 ID (결제창에 넘긴 값) |
+| `paymentKey` | string | ✅ | 최대 200자 |
+| `amount` | integer | ✅ | 1 이상. 주문 `totalAmount`와 같아야 한다 |
 
-처리 순서: 결제를 `IN_PROGRESS`로 먼저 저장 → 토스 승인 호출 → 결과 반영 + 원장 기장 + 웹훅 이벤트 기록(한 트랜잭션).
+처리 순서: 주문 행 락 → 검증 → 결제를 `IN_PROGRESS`로 먼저 저장 → 토스 승인 호출(트랜잭션 밖) → 결과 반영 + 원장 기장 + 웹훅 이벤트 기록(한 트랜잭션).
+같은 주문의 승인 요청은 주문 행 락으로 직렬화되므로 동시에 여러 번 보내도 토스 승인은 한 번이다.
+
+**결과별 응답** — 서비스는 `code`로 분기한다.
+
+| 상황 | 응답 | 결제 상태 | 서비스가 할 일 |
+|---|---|---|---|
+| 승인 | `200` | `DONE` | 완료 처리 (후속 작업은 웹훅 `PAYMENT_CONFIRMED`로 해도 된다) |
+| 가상계좌 발급 | `200` | `WAITING_FOR_DEPOSIT` | 사용자에게 `method.virtualAccountNumber`·`virtualAccountDueAt` 안내. 입금되면 `PAYMENT_CONFIRMED` 웹훅 |
+| 같은 `paymentKey` 재요청 | 처음과 같은 결과 (`200` 또는 같은 에러) | 그대로 | 토스를 다시 부르지 않는다 |
+| 주문이 이 서비스 것이 아님 | `404 ORDER_NOT_FOUND` | 기록 안 함 | |
+| 주문 만료 | `409 ORDER_EXPIRED` | 기록 안 함 | 새 주문 등록 |
+| 이미 결제된 주문 | `409 ORDER_ALREADY_PAID` | 기록 안 함 | |
+| `amount ≠ totalAmount` | `400 PAYMENT_AMOUNT_MISMATCH` | 기록 안 함 | 금액 변조 의심 |
+| 토스 자격증명 미등록 | `500 PG_CREDENTIAL_NOT_FOUND` | 기록 안 함 | admin에 문의 |
+| **토스 거절** (한도 초과 등) | `402 PAYMENT_REJECTED` + `detail.pgCode`·`pgMessage` | `FAILED` | `pgMessage`를 사용자에게 보여주고 **다른 결제창(새 paymentKey)으로 재시도**. 실패한 시도는 주문을 막지 않는다 |
+| 토스 키 인증 실패 (hub 설정 문제) | `502 PG_ERROR` + `detail.pgCode` | `FAILED` | admin에 문의 |
+| **토스 응답 지연·연결 실패** | `504 PG_TIMEOUT` | `UNKNOWN` | **재시도하지 말고** 결과 조회·웹훅을 기다린다 (대사가 확정) |
+| **토스 5xx·이미 처리됨** | `502 PG_ERROR` | `UNKNOWN` | 위와 같음 |
+| 이 주문에 처리 중인 결제가 있음 | `409 PAYMENT_IN_PROGRESS` + `detail.paymentId` | 그대로 | 위와 같음 |
+
+결제가 기록된 에러(`402`, `502`, `504`, `409 PAYMENT_IN_PROGRESS`)는 `detail.paymentId`(와 `paymentStatus`)를 준다. 이 ID로 `GET /payments/:paymentId`를 조회하면 된다.
 
 ```json
-// 응답 200 — 카드 결제
+// 402 — 토스 거절
+{
+  "success": false,
+  "code": "PAYMENT_REJECTED",
+  "message": "결제 대행사가 결제를 승인하지 않았습니다.",
+  "detail": {
+    "paymentId": "b3c4...",
+    "paymentStatus": "FAILED",
+    "pgCode": "REJECT_CARD_PAYMENT",
+    "pgMessage": "한도초과 혹은 잔액부족으로 결제에 실패했습니다."
+  }
+}
+```
+
+> hub는 토스 응답을 최대 `TOSS_API_TIMEOUT_MS`(기본 30초) 기다린다. **서비스의 confirm 호출 타임아웃은 이보다 길게**(예: 60초) 둔다.
+> 그래도 서비스 쪽에서 타임아웃이 나면 결과를 모르는 것이므로 `GET /payments?externalOrderId=`로 확인한다.
+
+```json
+// 응답 200 — 카드 결제 (결제 단건·목록 항목도 같은 형태)
 {
   "success": true,
   "message": "결제가 승인되었습니다.",
   "data": {
     "paymentId": "a9d2...",
     "orderId": "3f1a...",
+    "externalOrderId": "svc-a-order-20260926-0001",
+    "externalUserId": "user-123",
+    "orderName": "프로 요금제 1개월",
+    "paymentType": "NORMAL",
     "status": "DONE",
     "amount": 30000,
     "refundedAmount": 0,
@@ -465,31 +507,41 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
     "currency": "KRW",
     "method": {
       "type": "CARD",
+      "raw": "카드",
       "cardCompanyCode": "11",
       "cardType": "CREDIT",
-      "cardNumberMasked": "4330-12**-****-123*",
-      "installmentMonths": 0
+      "cardNumberMasked": "433012******123*",
+      "installmentMonths": 0,
+      "easyPayProvider": null,
+      "bankCode": null,
+      "virtualAccountNumber": null,
+      "virtualAccountDueAt": null
     },
     "receiptUrl": "https://dashboard.tosspayments.com/receipt/...",
-    "approvedAt": "2026-09-26T07:16:03.000Z"
+    "approvedAt": "2026-09-26T07:16:03.000Z",
+    "failure": null,
+    "createdAt": "2026-09-26T07:15:58.000Z"
   }
 }
 ```
 
-가상계좌는 `status: "WAITING_FOR_DEPOSIT"`와 함께 입금 안내 정보를 준다. 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다.
+가상계좌는 `status: "WAITING_FOR_DEPOSIT"`, `approvedAt: null`과 함께 입금 안내 정보를 준다. 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다 (토스 웹훅 수신은 🚧).
 
 ```json
 "method": {
   "type": "VIRTUAL_ACCOUNT",
+  "raw": "가상계좌",
   "bankCode": "20",
   "virtualAccountNumber": "X6505636518308",
-  "virtualAccountDueAt": "2026-09-27T14:59:59.000Z"
+  "virtualAccountDueAt": "2026-09-27T14:59:59.000Z",
+  "...": "그 외 필드는 null"
 }
 ```
 
-**`method.type` 값**: `CARD`, `VIRTUAL_ACCOUNT`, `TRANSFER`, `EASY_PAY`, `MOBILE_PHONE`, `GIFT_CERTIFICATE`
+**`method.type` 값**: `CARD`, `VIRTUAL_ACCOUNT`, `TRANSFER`, `EASY_PAY`, `MOBILE_PHONE`, `GIFT_CERTIFICATE` (토스가 새 수단을 주면 `null`, 원문은 `raw`)
 **`method.cardType` 값**: `CREDIT`, `CHECK`, `GIFT`, `UNKNOWN`
-카드사(`cardCompanyCode`)·은행(`bankCode`) 코드와 `easyPayProvider`는 토스 코드 원문이다.
+카드사(`cardCompanyCode`)·은행(`bankCode`) 코드와 `easyPayProvider`는 토스 코드 원문이다. 간편결제를 카드로 했으면 카드 필드도 채워진다.
+실패한 결제는 `failure: { "code": "REJECT_CARD_PAYMENT", "message": "..." }`.
 
 #### `POST /payments/billing` — 자동결제
 
@@ -509,19 +561,25 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 #### `GET /payments` — 결제 목록 (사용자별)
 
+자기 서비스 결제만, 최신순(`createdAt`, `id`) cursor 페이징. **실패한 시도도 포함**한다.
+
 | 쿼리 | 설명 |
 |---|---|
 | `externalUserId` | 사용자 ID. **서비스 + 사용자 단위 결제 이력** |
-| `externalOrderId` | 서비스 주문번호 |
+| `externalOrderId` | 서비스 주문번호 (confirm 타임아웃 후 결과 확인에도 사용) |
 | `externalSubscriptionId` | 구독 결제 체인 (일할 환불 계산용) |
-| `status` | `DONE`, `PARTIAL_CANCELED`, ... (쉼표로 여러 개) |
+| `status` | `DONE,PARTIAL_CANCELED`처럼 쉼표로 여러 개. 모르는 값이면 `400 INVALID_REQUEST` |
 | `methodType` | `CARD`, `VIRTUAL_ACCOUNT`, ... |
-| `from`, `to` | 결제 생성 시각 범위 |
-| `limit`, `cursor` | 페이징 |
+| `from`, `to` | 결제 시도 시각 범위 (ISO 8601, `from` 이상 `to` 미만) |
+| `limit`, `cursor` | 페이지 크기(1~100, 기본 20), 이전 응답의 `nextCursor` |
 
+응답 `data`는 `{ data: [결제...], totalCount, nextCursor }`. 결제 항목은 승인 응답과 같은 형태다.
 서비스 응답에서는 PG 응답 원본, 원장 분개, 대사 내부 정보를 **제외**한다.
 
 #### `GET /payments/:paymentId/refundable` — 환불 가능 금액
+
+환불 요청 `amount`의 상한과 항목별 취소 가능 수량. 승인되지 않은 결제(`IN_PROGRESS`, `UNKNOWN`, `WAITING_FOR_DEPOSIT`, `FAILED` ...)는 금액·수량 모두 `0`.
+다른 서비스의 결제는 `404 PAYMENT_NOT_FOUND`.
 
 ```json
 {
@@ -534,8 +592,8 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
     "refundedAmount": 3000,
     "refundableAmount": 27000,
     "items": [
-      { "orderItemId": "c1...", "productName": "프로 요금제 1개월", "quantity": 1, "canceledQuantity": 0, "cancelableQuantity": 1 },
-      { "orderItemId": "c2...", "productName": "추가 저장공간 10GB", "quantity": 2, "canceledQuantity": 1, "cancelableQuantity": 1 }
+      { "orderItemId": "c1...", "productName": "프로 요금제 1개월", "unitPrice": 24000, "quantity": 1, "canceledQuantity": 0, "cancelableQuantity": 1 },
+      { "orderItemId": "c2...", "productName": "추가 저장공간 10GB", "unitPrice": 3000, "quantity": 2, "canceledQuantity": 1, "cancelableQuantity": 1 }
     ]
   }
 }
@@ -635,7 +693,10 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
     "status": "DONE",
     "amount": 30000,
     "refundedAmount": 0,
-    "methodType": "CARD"
+    "currency": "KRW",
+    "methodType": "CARD",
+    "failureCode": null,
+    "failureMessage": null
   }
 }
 ```
@@ -648,7 +709,12 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `PAYMENT_CANCELED` | 전체·부분 환불 완료 |
 | `ORDER_EXPIRED` | 결제 없이 주문 만료 |
 
-서명 규격 구현(`src/outbox/webhook-signature.ts`)과 서비스용 검증 예제([examples/webhook-signature-verify.ts](../examples/webhook-signature-verify.ts))는 ✅ — 서로 맞는지 테스트된다. 발송(outbox 폴러)은 🚧.
+`data`는 결제 "사실"만 담는다 — 서비스가 자기 주문을 찾을 수 있게 `externalOrderId`·`externalUserId`를 넣고, PG 응답 원본·원장은 넣지 않는다. `failureCode`·`failureMessage`는 `PAYMENT_FAILED`일 때 토스 원본 사유.
+
+구현 상태:
+- 서명 규격(`src/outbox/webhook-signature.ts`)과 서비스용 검증 예제([examples/webhook-signature-verify.ts](../examples/webhook-signature-verify.ts)) ✅ — 서로 맞는지 테스트된다
+- 이벤트 기록 ✅ — 결제 승인 결과(`PAYMENT_CONFIRMED`·`PAYMENT_WAITING_FOR_DEPOSIT`·`PAYMENT_FAILED`)를 상태 변경과 같은 트랜잭션에서 `tb_outbox_event`에 남기고, 서비스에 `webhookUrl`이 있으면 전달 대상(`PENDING`)을 만든다
+- 실제 발송(outbox 폴러·재시도) 🚧
 
 ### 서비스 쪽 처리 규칙
 

@@ -313,6 +313,8 @@ cancel(cancelAmount: number, reasonCode: string): PaymentCancel {
 ### 서비스 레이어
 - 트랜잭션은 `typeorm-transactional`의 `@Transactional()`.
 - 토스 호출은 DB 트랜잭션 **밖에서**. 순서: (tx1) 선기록 → 토스 호출 → (tx2) 결과 반영 + 원장 + outbox.
+- `TossPaymentsClient`는 예외 대신 결과(`APPROVED` / `REJECTED` / `UNKNOWN`)를 돌려준다 → 호출하는 쪽이 세 경우를 모두 처리하도록 강제.
+- 같은 주문의 결제 요청은 **주문 행 `pessimistic_write` 락**으로 직렬화한다 (락 안에서 재요청·살아있는 결제 확인 → 토스 승인은 한 번).
 - 금액이 바뀌는 쓰기는 대상 행을 `pessimistic_write` 락으로 조회.
 - 에러는 아래 "에러 처리" 규칙을 따른다. NestJS 내장 예외(`BadRequestException` 등)를 직접 던지지 않는다.
 
@@ -351,7 +353,10 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 - `BusinessException` → 정의된 status, code, message 그대로
 - class-validator 실패 → `400 INVALID_REQUEST`, 필드별 한국어 메시지를 `detail.errors`에 `{ field, message }` 배열로. 중첩 필드는 점 경로(`items.0.quantity`), 정의되지 않은 필드는 `'허용되지 않은 필드입니다.'`
 - Nest 내장 예외 → 400은 `INVALID_REQUEST`(JSON 파싱 실패 등), 401은 `UNAUTHORIZED`, 404는 `RESOURCE_NOT_FOUND`(없는 경로). 그 외 status는 `500 INTERNAL_ERROR`로 처리한다. hub 코드에서는 내장 예외를 직접 던지지 않는다
-- 토스 에러 → 아는 코드는 hub 코드로 매핑, 모르는 코드는 `PG_ERROR`. 토스 원본 `code`·`message`는 `detail.pgCode`·`detail.pgMessage`로 전달하고 DB `failure_code`/`failure_message`에도 보존 (카드 거절 사유 등을 서비스가 사용자에게 보여줄 수 있게)
+- 토스 에러 → 토스 원본 `code`·`message`는 `detail.pgCode`·`detail.pgMessage`로 전달하고 DB `failure_code`/`failure_message`에도 보존 (카드 거절 사유 등을 서비스가 사용자에게 보여줄 수 있게). 매핑은 `pg/toss-error.ts`
+  - 토스 거절(4xx) → 결제 `FAILED` + `402 PAYMENT_REJECTED`. 단 hub 키 문제(`UNAUTHORIZED_KEY` 등)는 `502 PG_ERROR`
+  - 결과 불명(타임아웃·연결 실패 → `504 PG_TIMEOUT`, 5xx·`ALREADY_PROCESSED_PAYMENT` → `502 PG_ERROR`) → 결제 `UNKNOWN`. 실패로 확정하지 않는다 (돈이 나갔을 수 있음)
+  - 결제가 기록된 에러는 `detail.paymentId`·`paymentStatus`를 준다. 에러는 결과 반영 트랜잭션이 커밋된 **뒤에** 던진다 (롤백 방지)
 - 그 외 예상 못 한 예외 → `500 INTERNAL_ERROR`, 메시지는 `'일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'`. 스택·SQL·내부 정보는 응답에 넣지 않고 로그로만 남긴다
 - `detail`에 비밀값·개인정보 금지
 
@@ -378,6 +383,7 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 | `PAYMENT_NOT_FOUND` | 404 | 결제 내역을 찾을 수 없습니다. |
 | `PAYMENT_AMOUNT_MISMATCH` | 400 | 결제 금액이 주문 금액과 일치하지 않습니다. |
 | `PAYMENT_IN_PROGRESS` | 409 | 결제가 처리 중입니다. 잠시 후 결과를 확인해주세요. |
+| `PAYMENT_REJECTED` | 402 | 결제 대행사가 결제를 승인하지 않았습니다. |
 | `PAYMENT_NOT_CANCELABLE` | 409 | 취소할 수 없는 결제 상태입니다. |
 | `CANCEL_AMOUNT_EXCEEDED` | 400 | 환불 가능 금액을 초과했습니다. |
 | `BILLING_KEY_NOT_FOUND` | 404 | 등록된 자동결제 수단을 찾을 수 없습니다. |
@@ -409,6 +415,8 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 - 결제·취소 유스케이스는 멱등 재요청, 동시 요청, 토스 타임아웃, 서비스 소유권 위반 케이스 포함.
 - 에러 케이스 테스트는 HTTP status뿐 아니라 **에러 `code`까지** 검증한다. 엔티티·함수 단위는 `test/support/business-error.ts`의 `expectBusinessError(fn, 'CODE')`를 쓴다.
 - 테스트 위치: `/test/<domain>/*.spec.ts`.
+- 토스는 `test/support/fake-toss.ts`(실제 HTTP 가짜 서버)로 검증한다. 목 대신 실제 HTTP로 인증 헤더·타임아웃·에러 분류까지 확인하고, `createIntegrationApp({ TOSS_API_BASE_URL })`로 주입한다.
+- 동시성 테스트는 HTTP 동시 요청만으로 구간이 겹친다고 가정하지 않는다. 트랜잭션 안 조회를 늦추는 등 경합을 결정적으로 만들고, 보호 장치를 빼면 실패하는지 확인한다.
 - DB가 필요한 통합 테스트는 `*.int-spec.ts` → `npm run test:integration`. 실행마다 `TEST_DB_DATABASE`(기본 `payment_hub_test`, `_test`로 끝나야 함)를 DROP 후 재생성하고 `db/schema.sql`을 적용한다.
 - `test/schema/`의 적합성 테스트가 엔티티 ↔ 스키마(테이블·컬럼·타입·길이·nullable·PK·FK)와 constants ↔ CHECK 값을 검증한다. 스키마·엔티티·constants를 바꾸면 반드시 통과시킨다.
 

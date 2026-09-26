@@ -120,6 +120,26 @@ export class Order extends BaseEntity {
     );
   }
 
+  /**
+   * 결제 승인 전 검증. 만료는 만료 배치가 돌기 전이어도 시각으로 판단한다.
+   * 금액은 서비스가 결제창에 넘긴 값(토스 successUrl의 amount)과 등록 시 고정한 결제 금액을 대조해 변조를 막는다.
+   */
+  assertConfirmable(amount: number, now: Date): void {
+    if (PAID_STATUSES.has(this.status)) throw new BusinessException(ErrorCode.ORDER_ALREADY_PAID);
+    if (this.status === OrderStatus.EXPIRED || this.expiresAt.getTime() <= now.getTime()) {
+      throw new BusinessException(ErrorCode.ORDER_EXPIRED);
+    }
+    if (amount !== this.totalAmount) throw new BusinessException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
+  }
+
+  markPaid(paidAt: Date): void {
+    if (this.status !== OrderStatus.PENDING) {
+      throw new Error(`주문 ${this.orderId}: ${this.status} → PAID 전이 불가`);
+    }
+    this.status = OrderStatus.PAID;
+    this.paidAt = paidAt;
+  }
+
   private comparable() {
     return {
       externalUserId: this.externalUserId,
@@ -149,6 +169,12 @@ export interface CreateOrderParams {
   expiresAt: Date;
   metadata?: Record<string, unknown> | null;
 }
+
+const PAID_STATUSES: ReadonlySet<OrderStatus> = new Set([
+  OrderStatus.PAID,
+  OrderStatus.PARTIAL_CANCELED,
+  OrderStatus.CANCELED,
+]);
 
 const sumAmounts = (items: OrderItem[]): number => items.reduce((sum, item) => sum + item.amount, 0);
 
