@@ -18,7 +18,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "db:up": "docker compose up -d postgres",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "test:integration": "jest --config test/jest-integration.json --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^11.2.6",
@@ -70,9 +71,9 @@
     "roots": [
       "<rootDir>/test"
     ],
-    "testRegex": ".*.spec.ts$",
+    "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+.ts$": "ts-jest"
+      "^.+\\.ts$": "ts-jest"
     },
     "collectCoverageFrom": [
       "src/**/*.ts",

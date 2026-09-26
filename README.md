@@ -208,7 +208,10 @@ npm run start:dev
 |---|---|
 | `npm run build` | 프로덕션 빌드 |
 | `npm run lint` | ESLint (type-checked) |
-| `npm test` | 단위 테스트 (`test/**/*.spec.ts`) |
+| `npm test` | 단위 테스트 (`test/**/*.spec.ts`, DB 불필요) |
+| `npm run test:integration` | 통합 테스트 (`test/**/*.int-spec.ts`). `payment_hub_test` DB를 새로 만들고 `db/schema.sql` 적용 |
+
+`db/schema.sql`이 SSOT이고 TypeORM `synchronize`를 쓰지 않는다. 대신 `test/schema/`의 적합성 테스트가 엔티티와 스키마(테이블·컬럼·타입·길이·nullable·PK·FK), 상태 constants와 DB CHECK 값이 어긋나지 않는지 검증한다.
 
 ---
 
@@ -236,6 +239,7 @@ src
 - [x] 설계 원칙·책임 경계·API 표면 정의 ([CLAUDE.md](./CLAUDE.md))
 - [x] DB 스키마 (17개 테이블, 복합 FK, 원장 트리거)
 - [x] NestJS 프로젝트 초기 세팅
+- [x] 전체 테이블 엔티티 매핑 + 상태 constants + 스키마 적합성 테스트
 - [ ] 공통: 에러 코드·예외 필터, 금액 transformer, 인증 가드(기본 거부)
 - [ ] 서비스·API 키·PG 자격증명 관리 (admin API + 감사 로그)
 - [ ] 주문 사전 등록 → 결제 승인 → 원장 기장 → outbox

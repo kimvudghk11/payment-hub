@@ -219,7 +219,7 @@ payment-hub는 호출 주체가 둘이고, API 표면도 둘로 완전히 나뉜
 
 ```
 src
-├── common/                 BaseEntity, errors, filters, guards, interceptors, decorators, utils, crypto
+├── common/                 domain(BaseEntity), database(transformer), errors, filters, guards, interceptors, decorators, utils, crypto
 ├── pg/                     토스 API 클라이언트 (승인·빌링·취소·조회). 다른 모듈이 주입받아 사용
 ├── service/                서비스·API 키·PG 자격증명·상품 유형 관리, ApiKeyGuard
 ├── billing-key/            빌링키 발급·조회·폐기
@@ -255,8 +255,14 @@ src
 ## 8. 코딩 컨벤션
 
 ### 엔티티 (DDD)
-- 모든 엔티티는 `BaseEntity`(`createdAt`, `updatedAt`) 상속. 원장 엔티티는 `createdAt`만.
+- 베이스 클래스는 테이블의 시간 컬럼 구성에 맞춰 고른다 (`src/common/domain/`). 테이블에 없는 컬럼을 상속하면 TypeORM이 SQL에 포함시켜 실패하므로, nullable로 대신할 수 없다.
+  - `created_at` + `updated_at` → `BaseEntity`
+  - `created_at`만 (API 키, 원장, 감사 로그) → `CreatedAtEntity`
+  - 그 외 (`tb_payment_cancel_item`, `tb_outbox_event`, `tb_pg_webhook_event`) → 상속 없이 자기 컬럼 선언
 - PK는 uuid: `@PrimaryGeneratedColumn('uuid', { name: 'id' })`, 코드 프로퍼티명은 `[domain]Id`.
+- 모든 `@Column`에 `name`과 `type`(문자열은 `length`까지)을 명시한다. 금액 bigint 컬럼은 `bigintAmountTransformer` 필수.
+- **객체 관계는 애그리거트 내부만** (Order→OrderItem, Payment→PaymentCancel→PaymentCancelItem, LedgerTransaction→LedgerEntry). 다른 애그리거트는 ID 컬럼으로만 참조한다. 복합 FK는 `@JoinColumn([...])`으로 `(id, service_id)`를 함께 매핑한다.
+- 순환 import 방지: 부모는 자식을 값으로 import, 자식은 부모를 문자열 이름(`@ManyToOne('Order', ...)`) + `import type`으로 참조한다.
 - **생성은 정적 팩토리** (`Order.create(...)`, `Payment.start(...)`). 팩토리에서 불변식 검증.
 - **상태 변경은 행위 메서드로만** (`payment.markDone(...)`, `payment.cancel(amount, reason)`, `order.markPaid()`). 서비스 레이어에서 `entity.status = ...` 직접 대입 금지.
 - 잘못된 상태 전이는 엔티티가 예외를 던진다.
@@ -372,6 +378,8 @@ export const ErrorCode = {
 - 결제·취소 유스케이스는 멱등 재요청, 동시 요청, 토스 타임아웃, 서비스 소유권 위반 케이스 포함.
 - 에러 케이스 테스트는 HTTP status뿐 아니라 **에러 `code`까지** 검증한다.
 - 테스트 위치: `/test/<domain>/*.spec.ts`.
+- DB가 필요한 통합 테스트는 `*.int-spec.ts` → `npm run test:integration`. 실행마다 `TEST_DB_DATABASE`(기본 `payment_hub_test`, `_test`로 끝나야 함)를 DROP 후 재생성하고 `db/schema.sql`을 적용한다.
+- `test/schema/`의 적합성 테스트가 엔티티 ↔ 스키마(테이블·컬럼·타입·길이·nullable·PK·FK)와 constants ↔ CHECK 값을 검증한다. 스키마·엔티티·constants를 바꾸면 반드시 통과시킨다.
 
 ---
 

@@ -50,7 +50,7 @@ CREATE TABLE tb_service_api_key (
   id            uuid         NOT NULL DEFAULT gen_random_uuid(),
   service_id    uuid         NOT NULL,
   label         varchar(50)  NOT NULL,                    -- 'prod-server-1', 'batch' 등
-  key_prefix    varchar(12)  NOT NULL,                    -- 'pl_live_' 등. 환경 구분 + 로그 식별용
+  key_prefix    varchar(12)  NOT NULL,                    -- 'ph_live_' / 'ph_test_'. 환경 구분 + 로그 식별용
   key_hint      char(4)      NOT NULL,                    -- 마지막 4자리. 어드민 표시용
   key_hash      char(64)     NOT NULL,                    -- SHA-256 hex
   expires_at    timestamptz  NULL,                        -- NULL = 만료 없음

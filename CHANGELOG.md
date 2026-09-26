@@ -6,6 +6,31 @@
 
 ### 2026-09-26
 
+#### feat(entity): 전체 테이블 엔티티 매핑 및 상태 constants 추가
+- **무엇을**:
+  - `db/schema.sql` 17개 테이블 전부 TypeORM 엔티티로 매핑 (`src/<domain>/domain/*.entity.ts`). 컬럼 매핑만 하고, 정적 팩토리·행위 메서드는 각 유스케이스 구현 시 TDD로 추가
+  - 베이스 클래스 `CreatedAtEntity`(created_at) ← `BaseEntity`(+updated_at). 시간 컬럼 구성이 다른 3개 테이블은 상속 없이 직접 선언
+  - 객체 관계는 애그리거트 내부만: Order→OrderItem, Payment→PaymentCancel→PaymentCancelItem, LedgerTransaction→LedgerEntry. 복합 FK `(id, service_id)`는 `@JoinColumn([...])`으로 매핑
+  - 도메인별 상태 constants (`src/<domain>/constants/*.constants.ts`) — DB CHECK 값과 1:1
+  - 금액 bigint transformer `bigintAmountTransformer` (문자열 → number, 안전 정수 범위 밖이면 예외, 저장 시 정수 아닌 값 거부)
+  - 통합 테스트 인프라: `npm run test:integration`, `test/jest-integration.json`, 테스트 DB 재생성 + 스키마 적용 globalSetup
+  - 스키마 적합성 테스트: 엔티티 ↔ 스키마(테이블·컬럼 양방향·타입·길이·nullable·PK·FK), constants ↔ CHECK 값, CHECK 제약의 constants 누락 검사
+  - `db/schema.sql` API 키 prefix 주석 `pl_live_` → `ph_live_` / `ph_test_`
+  - 첫 커밋에서 heredoc 때문에 백슬래시가 빠진 jest `testRegex`/`transform` 정규식 수정 (`.int-spec.ts`까지 단위 테스트로 잡히던 문제)
+- **왜**:
+  - 스키마가 확정돼 있어 매핑을 먼저 깔면 이후 유스케이스 작업이 엔티티 위에서 바로 시작됨. 불변식은 유스케이스와 함께 정의해야 제대로 테스트할 수 있어 행위 메서드는 미룸
+  - `synchronize`를 쓰지 않으므로 엔티티와 SSOT 스키마가 어긋나도 런타임 전까지 알 수 없음 → 적합성 테스트를 유일한 안전망으로 둠
+  - 테이블에 없는 컬럼을 베이스에서 상속하면 TypeORM이 SQL에 포함시켜 실패함(nullable로 해결 불가) → 시간 컬럼 구성별로 베이스 분리
+  - 애그리거트 밖 관계를 객체로 매핑하면 경계가 흐려지고 의도치 않은 로딩이 생김
+  - bigint를 number로 변환할 때 조용한 정밀도 손실은 금액 오류로 직결
+- **변경 파일**: `src/common/domain/*`, `src/common/database/bigint-amount.transformer.ts`, `src/{service,billing-key,order,payment,ledger,outbox,pg-webhook,admin/audit}/{domain,constants}/*`, `src/pg/constants/pg.constants.ts`, `test/common/*`, `test/schema/*`, `test/setup/*`, `test/jest-integration.json`, `package.json`, `.env.example`, `db/schema.sql`, `CLAUDE.md`, `README.md`
+- **스키마/에러 코드**: 스키마 구조 변경 없음 (주석만)
+- **문서**: CLAUDE.md 8장 엔티티 규칙(베이스 클래스 선택, 컬럼 명시, 애그리거트 내부 관계, 순환 import 방지)과 테스트 규칙(통합 테스트·적합성 테스트) 갱신
+- **남은 작업 / 주의**:
+  - 엔티티가 아직 어떤 모듈의 `TypeOrmModule.forFeature()`에도 등록되지 않음 → 각 도메인 모듈을 만들 때 등록 (`autoLoadEntities`)
+  - 통합 테스트는 Postgres가 필요 (`npm run db:up` 또는 `DB_*` 환경변수로 다른 인스턴스 지정)
+  - 이번 검증은 로컬 PostgreSQL 18로 수행. `docker compose`(postgres:15) 경로는 미검증
+
 #### chore: .gitignore에 node_modules 항목 추가
 - **무엇을**: `.gitignore` 끝에 `node_modules` 추가
 - **왜**: 의존성 디렉터리가 커밋되지 않도록 명시 (기존 `node_modules/` 규칙과 중복이며 동작 변화 없음)
