@@ -97,3 +97,54 @@ describe('TossPaymentsClient.confirm', () => {
     });
   });
 });
+
+describe('TossPaymentsClient.getPayment (대사용 조회)', () => {
+  const toss = new FakeToss();
+  let client: TossPaymentsClient;
+
+  beforeAll(async () => {
+    client = new TossPaymentsClient({ baseUrl: await toss.start(), timeoutMs: 300 });
+  });
+  afterEach(() => toss.reset());
+  afterAll(() => toss.close());
+
+  it('GET /v1/payments/{paymentKey} — Basic 인증, paymentKey는 URL 인코딩', async () => {
+    toss.respond(() => ({ status: 200, body: { paymentKey: 'tgen a/b', status: 'DONE' } }));
+    await client.getPayment({ secretKey: SECRET_KEY, paymentKey: 'tgen a/b' });
+
+    const [request] = toss.requests;
+    expect(request.method).toBe('GET');
+    expect(request.path).toBe('/v1/payments/tgen%20a%2Fb');
+    expect(request.headers.authorization).toBe(`Basic ${Buffer.from(`${SECRET_KEY}:`).toString('base64')}`);
+  });
+
+  it('200 → APPROVED + 토스가 아는 현재 상태 (DONE·ABORTED·EXPIRED …)', async () => {
+    toss.respond(() => ({ status: 200, body: { paymentKey: 'tgen_abc', status: 'ABORTED' } }));
+
+    await expect(client.getPayment({ secretKey: SECRET_KEY, paymentKey: 'tgen_abc' })).resolves.toMatchObject({
+      outcome: 'APPROVED',
+      payment: { status: 'ABORTED' },
+    });
+  });
+
+  it('404 → REJECTED(NOT_FOUND_PAYMENT)', async () => {
+    toss.respond(() => ({
+      status: 404,
+      body: { code: 'NOT_FOUND_PAYMENT', message: '존재하지 않는 결제 정보 입니다.' },
+    }));
+
+    await expect(client.getPayment({ secretKey: SECRET_KEY, paymentKey: 'tgen_abc' })).resolves.toMatchObject({
+      outcome: 'REJECTED',
+      code: 'NOT_FOUND_PAYMENT',
+    });
+  });
+
+  it('타임아웃 → UNKNOWN(TIMEOUT)', async () => {
+    toss.respond(() => ({ status: 200, body: {}, delayMs: 1000 }));
+
+    await expect(client.getPayment({ secretKey: SECRET_KEY, paymentKey: 'tgen_abc' })).resolves.toMatchObject({
+      outcome: 'UNKNOWN',
+      reason: 'TIMEOUT',
+    });
+  });
+});

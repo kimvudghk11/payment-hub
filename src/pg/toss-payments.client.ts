@@ -37,29 +37,36 @@ export class TossPaymentsClient {
     amount: number;
     idempotencyKey: string;
   }): Promise<TossResult> {
-    return this.post('/v1/payments/confirm', params.secretKey, params.idempotencyKey, {
-      paymentKey: params.paymentKey,
-      orderId: params.orderId,
-      amount: params.amount,
+    return this.request('POST', '/v1/payments/confirm', params.secretKey, {
+      idempotencyKey: params.idempotencyKey,
+      body: { paymentKey: params.paymentKey, orderId: params.orderId, amount: params.amount },
     });
   }
 
-  private async post(
+  /**
+   * 결제 조회 (대사). https://docs.tosspayments.com/reference#paymentkey로-결제-조회
+   * APPROVED는 "토스가 응답함"이고, 결제 상태(DONE·ABORTED·EXPIRED …)는 payment.status로 판단한다.
+   */
+  getPayment(params: { secretKey: string; paymentKey: string }): Promise<TossResult> {
+    return this.request('GET', `/v1/payments/${encodeURIComponent(params.paymentKey)}`, params.secretKey, {});
+  }
+
+  private async request(
+    method: 'GET' | 'POST',
     path: string,
     secretKey: string,
-    idempotencyKey: string,
-    body: Record<string, unknown>,
+    options: { idempotencyKey?: string; body?: Record<string, unknown> },
   ): Promise<TossResult> {
     let response: Response;
     try {
       response = await fetch(new URL(path, this.options.baseUrl), {
-        method: 'POST',
+        method,
         headers: {
           Authorization: `Basic ${Buffer.from(`${secretKey}:`).toString('base64')}`,
-          'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
+          ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+          ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
         },
-        body: JSON.stringify(body),
+        body: options.body ? JSON.stringify(options.body) : undefined,
         signal: AbortSignal.timeout(this.options.timeoutMs),
       });
     } catch (error) {

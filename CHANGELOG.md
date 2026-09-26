@@ -6,6 +6,12 @@
 
 ### 2026-09-27
 
+#### feat(pg): 토스 결제 조회(getPayment) 추가
+- **무엇을**: `TossPaymentsClient.getPayment({ secretKey, paymentKey })` — `GET /v1/payments/{paymentKey}`(URL 인코딩). 승인과 같은 결과 타입(200 → `APPROVED` + 현재 결제 상태, 4xx → `REJECTED`, 타임아웃·5xx → `UNKNOWN`). 내부 호출부를 `request(method, …)`로 일반화
+- **왜**: 결과 불명(`UNKNOWN`)·멈춘(`IN_PROGRESS`) 결제를 토스의 실제 상태로 확정하는 대사 배치의 재료
+- **변경 파일**: `src/pg/toss-payments.client.ts`, `test/pg/toss-payments.client.spec.ts`
+- **남은 작업 / 주의**: 대사 배치는 다음 커밋
+
 #### feat(outbox): 웹훅 발송 워커·스케줄러 추가
 - **무엇을**:
   - `WebhookDispatcher.dispatchDue()`: (tx) `FOR UPDATE SKIP LOCKED`로 due 건 20개 획득·임대 → 서명 후 전송(트랜잭션 밖) → (tx) 결과 기록. 임대가 만료돼 다른 워커가 가져간 건(시도 횟수 불일치)은 덮어쓰지 않음
