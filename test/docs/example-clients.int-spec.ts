@@ -274,6 +274,22 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(retried.paymentId).toBe(paid.paymentId);
   });
 
+  it('admin: 서비스의 감사 로그와 토스 웹훅 수신 내역을 조회한다', async () => {
+    const { service } = await onboard();
+
+    const logs = await admin.listAuditLogs(actor, { serviceId: service.serviceId });
+    const webhooks = await admin.listPgWebhooks(actor, { status: 'FAILED' });
+
+    expect(logs.data.map((log) => log.action)).toEqual([
+      'API_KEY_ISSUED',
+      'PG_CREDENTIAL_REGISTERED',
+      'PRODUCT_TYPE_CREATED',
+      'SERVICE_CREATED',
+    ]);
+    expect(logs.data.every((log) => log.actorId === actor.actorId)).toBe(true);
+    expect(Array.isArray(webhooks.data)).toBe(true);
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });

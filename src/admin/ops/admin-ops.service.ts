@@ -13,10 +13,15 @@ import { WebhookDelivery } from '../../outbox/domain/webhook-delivery.entity';
 import { PaymentStatus } from '../../payment/constants/payment.constants';
 import { Payment } from '../../payment/domain/payment.entity';
 import { PaymentReconciler } from '../../payment/payment-reconciler';
+import { PgWebhookEvent } from '../../pg-webhook/domain/pg-webhook-event.entity';
 import { Service } from '../../service/domain/service.entity';
 import { AdminAuditService } from '../audit/admin-audit.service';
 import { AdminAuditAction, AuditTargetType } from '../audit/constants/admin-audit.constants';
-import { ListUnknownPaymentsQueryDto, ListWebhookDeliveriesQueryDto } from './dto/request/admin-ops.query.dto';
+import {
+  ListPgWebhooksQueryDto,
+  ListUnknownPaymentsQueryDto,
+  ListWebhookDeliveriesQueryDto,
+} from './dto/request/admin-ops.query.dto';
 
 const DEFAULT_UNKNOWN_LIMIT = 50;
 
@@ -37,6 +42,7 @@ export class AdminOpsService {
     @InjectRepository(Service) private readonly services: Repository<Service>,
     @InjectRepository(Payment) private readonly payments: Repository<Payment>,
     @InjectRepository(Order) private readonly orders: Repository<Order>,
+    @InjectRepository(PgWebhookEvent) private readonly pgWebhooks: Repository<PgWebhookEvent>,
     private readonly reconciler: PaymentReconciler,
     private readonly audit: AdminAuditService,
   ) {}
@@ -131,6 +137,20 @@ export class AdminOpsService {
     );
     const [view] = await this.withOrders([payment]);
     return { resolved, ...view };
+  }
+
+  /** 토스 → hub 웹훅 수신 내역 (최신순). 실패 건의 결제는 대사 배치가 이어받으므로, 오래 FAILED가 쌓이면 원인을 본다 */
+  listPgWebhooks(query: ListPgWebhooksQueryDto): Promise<IPageable<PgWebhookEvent>> {
+    const filtered = this.pgWebhooks.createQueryBuilder('w').where('1 = 1');
+    if (query.status) filtered.andWhere('w.status = :status', { status: query.status });
+    if (query.eventType) filtered.andWhere('w.eventType = :eventType', { eventType: query.eventType });
+    return paginateByCreatedAt(filtered, {
+      alias: 'w',
+      idProperty: 'pgWebhookEventId',
+      dateProperty: 'receivedAt',
+      limit: query.limit,
+      cursor: query.cursor,
+    });
   }
 
   private async withEvents(deliveries: WebhookDelivery[]): Promise<DeliveryView[]> {

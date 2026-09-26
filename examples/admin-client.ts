@@ -107,6 +107,34 @@ export interface AdminPaymentDetail extends AdminPayment {
   providerResponse: Record<string, unknown> | null;
 }
 
+export interface AuditLog {
+  adminAuditLogId: string;
+  actorId: string;
+  actorName: string | null;
+  action: string;
+  targetType: string;
+  targetId: string;
+  serviceId: string | null;
+  /** 변경 전후 (비밀값 제외) */
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reason: string | null;
+  requestId: string | null;
+  ip: string | null;
+  createdAt: string;
+}
+
+export interface PgWebhook {
+  pgWebhookEventId: string;
+  eventType: string;
+  status: 'RECEIVED' | 'PROCESSED' | 'IGNORED' | 'FAILED';
+  error: string | null;
+  /** 토스 원본 본문 */
+  payload: Record<string, unknown>;
+  receivedAt: string;
+  processedAt: string | null;
+}
+
 export class PaymentHubAdminClient {
   constructor(private readonly options: { baseUrl: string; adminKey: string }) {}
 
@@ -249,7 +277,40 @@ export class PaymentHubAdminClient {
     );
   }
 
+  // ---------- 감사 로그 ----------
+
+  /** 누가·언제·무엇을·왜 (조회는 기록되지 않음) */
+  async listAuditLogs(
+    actor: AdminActor,
+    query: {
+      actorId?: string;
+      action?: string;
+      targetType?: string;
+      targetId?: string;
+      serviceId?: string;
+      from?: string;
+      to?: string;
+      limit?: number;
+      cursor?: string;
+    } = {},
+  ) {
+    return this.call<Page<AuditLog>>(actor, 'GET', '/admin/audit-logs', undefined, query);
+  }
+
   // ---------- 운영 큐 ----------
+
+  /** 토스 → hub 웹훅 수신 내역. 실패 확인은 status: 'FAILED' */
+  async listPgWebhooks(
+    actor: AdminActor,
+    query: {
+      status?: 'RECEIVED' | 'PROCESSED' | 'IGNORED' | 'FAILED';
+      eventType?: string;
+      limit?: number;
+      cursor?: string;
+    } = {},
+  ) {
+    return this.call<Page<PgWebhook>>(actor, 'GET', '/admin/ops/pg-webhooks', undefined, query);
+  }
 
   /** 웹훅 전달 내역. 실패 큐는 status: 'DEAD' */
   async listWebhookDeliveries(

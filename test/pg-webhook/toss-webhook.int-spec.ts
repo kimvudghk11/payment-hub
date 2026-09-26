@@ -1,7 +1,7 @@
 import { PaymentReconciler } from '../../src/payment/payment-reconciler';
 import { PayableService, onboardPayableService } from '../support/admin-fixtures';
 import { FakeToss, FakeTossResponse, approvedCardPayment } from '../support/fake-toss';
-import { IntegrationApp, createIntegrationApp, dataOf } from '../support/integration-app';
+import { IntegrationApp, adminHeaders, createIntegrationApp, dataOf } from '../support/integration-app';
 
 let seq = 0;
 
@@ -195,6 +195,21 @@ describe('토스 → hub 웹훅 POST /pg-webhooks/toss (가상계좌 입금)', (
     await ctx.app.get(PaymentReconciler).reconcileDue(new Date(Date.now() + 11 * 60_000));
 
     expect(await paymentStatus(paymentId)).toBe('DONE');
+  });
+
+  it('admin: 수신 내역을 상태별로 조회 (GET /admin/ops/pg-webhooks?status=FAILED)', async () => {
+    const { orderId, paymentKey } = await waitingPayment();
+    tossState.set(paymentKey, { status: 500, body: { code: 'FAILED_INTERNAL_SYSTEM_PROCESSING', message: '' } });
+    await webhook(statusChanged(orderId, paymentKey, 'DONE'));
+
+    const res = await ctx.http().get('/api/v1/admin/ops/pg-webhooks?status=FAILED').set(adminHeaders);
+
+    expect(res.status).toBe(200);
+    const page = dataOf<{
+      data: { eventType: string; status: string; error: string; payload: { data: { paymentKey: string } } }[];
+    }>(res);
+    expect(page.data.every((event) => event.status === 'FAILED')).toBe(true);
+    expect(page.data[0]).toMatchObject({ eventType: 'PAYMENT_STATUS_CHANGED', payload: { data: { paymentKey } } });
   });
 
   it('입금 대기 결제는 10분이 안 지났으면 대사 배치가 건드리지 않는다', async () => {

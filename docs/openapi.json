@@ -1687,6 +1687,148 @@
         ]
       }
     },
+    "/api/v1/admin/audit-logs": {
+      "get": {
+        "description": "작업자·작업 종류·대상·서비스·기간 필터, 최신순 cursor 페이징. before/after에는 비밀값이 없다",
+        "operationId": "AdminAuditController_list",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "actorId",
+            "required": false,
+            "in": "query",
+            "description": "작업한 관리자 ID",
+            "schema": {
+              "example": "admin-7",
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "작업 종류",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SERVICE_CREATED",
+                "SERVICE_UPDATED",
+                "SERVICE_SUSPENDED",
+                "SERVICE_RESUMED",
+                "SERVICE_DELETED",
+                "API_KEY_ISSUED",
+                "API_KEY_REVOKED",
+                "PG_CREDENTIAL_REGISTERED",
+                "PG_CREDENTIAL_DEACTIVATED",
+                "PRODUCT_TYPE_CREATED",
+                "PRODUCT_TYPE_UPDATED",
+                "WEBHOOK_CONFIG_UPDATED",
+                "WEBHOOK_SECRET_ROTATED",
+                "WEBHOOK_REDELIVERED",
+                "PAYMENT_CANCELED_BY_ADMIN",
+                "PAYMENT_RECONCILED"
+              ]
+            }
+          },
+          {
+            "name": "targetType",
+            "required": false,
+            "in": "query",
+            "description": "대상 종류 (SERVICE, API_KEY, PAYMENT, WEBHOOK_DELIVERY …)",
+            "schema": {
+              "example": "SERVICE",
+              "type": "string"
+            }
+          },
+          {
+            "name": "targetId",
+            "required": false,
+            "in": "query",
+            "description": "대상 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": false,
+            "in": "query",
+            "description": "대상이 속한 서비스 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "기록 시각 이상 (ISO 8601)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "기록 시각 미만 (ISO 8601)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "페이지 크기",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "이전 응답의 nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "감사 로그 조회",
+        "tags": [
+          "관리자 API — 감사 로그"
+        ]
+      }
+    },
     "/api/v1/admin/payments": {
       "get": {
         "description": "서비스·상태(쉼표 여러 개)·수단·카드사·기간·사용자·서비스 주문번호·토스 paymentKey 필터, 최신순 cursor 페이징",
@@ -2088,6 +2230,90 @@
           }
         ],
         "summary": "웹훅 재전송",
+        "tags": [
+          "관리자 API — 운영"
+        ]
+      }
+    },
+    "/api/v1/admin/ops/pg-webhooks": {
+      "get": {
+        "description": "처리 상태(FAILED 등)·이벤트 유형 필터, 최신순. 실패 건의 결제는 대사 배치가 이어받는다",
+        "operationId": "AdminOpsController_listPgWebhooks",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "처리 상태 (실패 확인은 FAILED)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RECEIVED",
+                "PROCESSED",
+                "IGNORED",
+                "FAILED"
+              ]
+            }
+          },
+          {
+            "name": "eventType",
+            "required": false,
+            "in": "query",
+            "description": "토스 이벤트 유형",
+            "schema": {
+              "example": "PAYMENT_STATUS_CHANGED",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "페이지 크기",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "이전 응답의 nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPgWebhookPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "토스 웹훅 수신 내역",
         "tags": [
           "관리자 API — 운영"
         ]
@@ -4255,6 +4481,116 @@
           }
         }
       },
+      "AuditLogResponseDto": {
+        "type": "object",
+        "properties": {
+          "adminAuditLogId": {
+            "type": "string"
+          },
+          "actorId": {
+            "type": "string",
+            "description": "작업한 관리자 ID"
+          },
+          "actorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "SERVICE_CREATED",
+              "SERVICE_UPDATED",
+              "SERVICE_SUSPENDED",
+              "SERVICE_RESUMED",
+              "SERVICE_DELETED",
+              "API_KEY_ISSUED",
+              "API_KEY_REVOKED",
+              "PG_CREDENTIAL_REGISTERED",
+              "PG_CREDENTIAL_DEACTIVATED",
+              "PRODUCT_TYPE_CREATED",
+              "PRODUCT_TYPE_UPDATED",
+              "WEBHOOK_CONFIG_UPDATED",
+              "WEBHOOK_SECRET_ROTATED",
+              "WEBHOOK_REDELIVERED",
+              "PAYMENT_CANCELED_BY_ADMIN",
+              "PAYMENT_RECONCILED"
+            ]
+          },
+          "targetType": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "serviceId": {
+            "type": "string",
+            "nullable": true
+          },
+          "before": {
+            "type": "object",
+            "nullable": true
+          },
+          "after": {
+            "type": "object",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true,
+            "description": "admin 레포 요청 ID"
+          },
+          "ip": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adminAuditLogId",
+          "actorId",
+          "actorName",
+          "action",
+          "targetType",
+          "targetId",
+          "serviceId",
+          "before",
+          "after",
+          "reason",
+          "requestId",
+          "ip",
+          "createdAt"
+        ]
+      },
+      "AuditLogPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditLogResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number"
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
       "AdminPaymentResponseDto": {
         "type": "object",
         "properties": {
@@ -4805,6 +5141,71 @@
           "nextCursor": {
             "type": "string",
             "description": "다음 페이지 cursor. 마지막이면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "AdminPgWebhookResponseDto": {
+        "type": "object",
+        "properties": {
+          "pgWebhookEventId": {
+            "type": "string"
+          },
+          "eventType": {
+            "type": "string",
+            "example": "PAYMENT_STATUS_CHANGED"
+          },
+          "status": {
+            "type": "string",
+            "example": "PROCESSED"
+          },
+          "error": {
+            "type": "string",
+            "nullable": true
+          },
+          "payload": {
+            "type": "object",
+            "description": "토스 원본 본문 (관리자에게만)"
+          },
+          "receivedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "processedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "pgWebhookEventId",
+          "eventType",
+          "status",
+          "error",
+          "payload",
+          "receivedAt",
+          "processedAt"
+        ]
+      },
+      "AdminPgWebhookPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminPgWebhookResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number"
+          },
+          "nextCursor": {
+            "type": "string",
             "nullable": true
           }
         },

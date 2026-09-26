@@ -6,6 +6,11 @@
 
 ### 2026-09-27
 
+#### feat(admin): 감사 로그 조회·토스 웹훅 수신 내역 조회 API 추가
+- **무엇을**: `GET /admin/audit-logs`(작업자·작업 종류·대상·서비스·기간, 최신순 cursor), `GET /admin/ops/pg-webhooks`(처리 상태·이벤트 유형, 최신순, 토스 원본 본문). cursor 페이징 헬퍼에 `dateProperty`(기본 createdAt) 추가 — `received_at`을 쓰는 수신 내역용. 예제 `listAuditLogs`·`listPgWebhooks`, api.md 2.5, admin 가이드, OpenAPI
+- **왜**: 감사 로그는 쓰기만 하고 볼 방법이 없었음 (admin 화면의 "누가 이 서비스를 정지했나"). 토스 웹훅 실패가 쌓이는지 운영자가 볼 수 있어야 함 (웹훅 URL 등록 누락 등)
+- **변경 파일**: `src/admin/audit/*`, `src/admin/ops/*`, `src/common/database/cursor-pagination.ts`, `examples/admin-client.ts`, `test/admin/admin-audit-log.int-spec.ts`, `test/pg-webhook/toss-webhook.int-spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`
+
 #### feat(payment): 자동결제 API(POST /payments/billing) 추가
 - **무엇을**:
   - (tx1) 주문 락 → 멱등 재요청(`billing:<서비스 키>`, 같은 내용이면 기록된 결과·다르면 `409 PAYMENT_IDEMPOTENCY_CONFLICT`) → 빌링키 검증(`usableBy`: 같은 서비스·같은 사용자·활성, 아니면 404) → 살아있는 결제·주문 검증 → `Payment.startBilling` 선기록 → 빌링키 복호화 후 토스 자동결제(멱등키 `billing:<paymentId>`) → (tx2) 결제 승인과 같은 결과 반영·원장·outbox

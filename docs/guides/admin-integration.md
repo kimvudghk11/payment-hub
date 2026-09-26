@@ -27,7 +27,7 @@
 - hub는 actor 헤더를 검증하지 않고 **신뢰**한다. 그래서 admin API는 네트워크에서도 막는다(내부망·IP 허용 목록). 서비스 API와 같은 공개 경로로 노출하지 않는다
 - 관리자 권한 확인(예: "환불은 재무 권한만")은 admin 레포가 hub를 호출하기 **전에** 한다
 
-**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회·운영 큐·수동 환불 ✅ / 리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
+**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회·운영 큐·수동 환불·감사 로그 조회 ✅ / 리포트 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
 
 ---
 
@@ -171,7 +171,9 @@ const { apiKey } = await hub.issueApiKey(actor, service.serviceId, { label: 'pro
 | **대사 대기 결제** | 조회 | `GET /admin/ops/unknown-payments` | 오래된 순 |
 | | 수동 대사 | `POST /admin/ops/payments/:id/reconcile` | `resolved: false`면 토스도 아직 모름 |
 | **수동 환불** | 환불 | `POST /admin/payments/:id/cancel { amount, reasonCode, reason, idempotencyKey }` | 사유 필수. 권한 확인(재무 등)은 admin 레포가 먼저. 환불 가능 금액은 `GET /admin/payments/:id`의 `refundableAmount` |
-| 리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
+| **감사 로그** | 조회 | `GET /admin/audit-logs?serviceId=&actorId=&action=&targetType=&targetId=&from=&to=` | 누가·언제·무엇을·왜, 변경 전후 (비밀값 제외) |
+| **토스 웹훅 수신** | 조회 | `GET /admin/ops/pg-webhooks?status=FAILED` | 실패 건의 결제는 대사 배치가 이어받는다 |
+| 리포트 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
 
 ---
 

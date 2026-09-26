@@ -12,7 +12,12 @@ import {
 } from '../payment/dto/response/admin-payment.response.dto';
 import { AdminReasonRequestDto } from '../service/dto/request/admin-reason.request.dto';
 import { AdminOpsService } from './admin-ops.service';
-import { ListUnknownPaymentsQueryDto, ListWebhookDeliveriesQueryDto } from './dto/request/admin-ops.query.dto';
+import {
+  ListPgWebhooksQueryDto,
+  ListUnknownPaymentsQueryDto,
+  ListWebhookDeliveriesQueryDto,
+} from './dto/request/admin-ops.query.dto';
+import { PgWebhookEvent } from '../../pg-webhook/domain/pg-webhook-event.entity';
 
 class AdminWebhookDeliveryPageResponseDto {
   @ApiProperty({ type: [AdminWebhookDeliveryResponseDto] })
@@ -31,6 +36,34 @@ class AdminReconcileResponseDto {
 
   @ApiProperty({ type: AdminPaymentResponseDto })
   payment: AdminPaymentResponseDto;
+}
+
+class AdminPgWebhookResponseDto {
+  @ApiProperty() pgWebhookEventId: string;
+  @ApiProperty({ example: 'PAYMENT_STATUS_CHANGED' }) eventType: string;
+  @ApiProperty({ example: 'PROCESSED' }) status: string;
+  @ApiProperty({ nullable: true, type: String }) error: string | null;
+  @ApiProperty({ description: '토스 원본 본문 (관리자에게만)', type: Object }) payload: Record<string, unknown>;
+  @ApiProperty() receivedAt: Date;
+  @ApiProperty({ nullable: true, type: Date }) processedAt: Date | null;
+
+  static from(event: PgWebhookEvent): AdminPgWebhookResponseDto {
+    return Object.assign(new AdminPgWebhookResponseDto(), {
+      pgWebhookEventId: event.pgWebhookEventId,
+      eventType: event.eventType,
+      status: event.status,
+      error: event.error,
+      payload: event.payload,
+      receivedAt: event.receivedAt,
+      processedAt: event.processedAt,
+    });
+  }
+}
+
+class AdminPgWebhookPageResponseDto {
+  @ApiProperty({ type: [AdminPgWebhookResponseDto] }) data: AdminPgWebhookResponseDto[];
+  @ApiProperty() totalCount: number;
+  @ApiProperty({ nullable: true, type: String }) nextCursor: string | null;
 }
 
 @ApiTags('관리자 API — 운영')
@@ -71,6 +104,18 @@ export class AdminOpsController {
   ): Promise<AdminWebhookDeliveryResponseDto> {
     const { delivery, event } = await this.opsService.redeliver(deliveryId, actor, dto.reason);
     return AdminWebhookDeliveryResponseDto.from(delivery, event);
+  }
+
+  @Get('pg-webhooks')
+  @ApiOperation({
+    summary: '토스 웹훅 수신 내역',
+    description: '처리 상태(FAILED 등)·이벤트 유형 필터, 최신순. 실패 건의 결제는 대사 배치가 이어받는다',
+  })
+  @ResponseMessage('토스 웹훅 수신 내역을 조회했습니다.')
+  @ApiResponse({ status: 200, type: AdminPgWebhookPageResponseDto })
+  async listPgWebhooks(@Query() query: ListPgWebhooksQueryDto): Promise<IPageable<AdminPgWebhookResponseDto>> {
+    const page = await this.opsService.listPgWebhooks(query);
+    return { ...page, data: page.data.map((event) => AdminPgWebhookResponseDto.from(event)) };
   }
 
   @Get('unknown-payments')

@@ -276,9 +276,9 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `POST` | `/admin/ops/payments/:paymentId/reconcile` | 수동 대사 (토스 조회로 지금 확정). 응답 `{ resolved, payment }`. 확정했을 때만 감사 로그 | `PAYMENT_RECONCILED` | ✅ |
 | `GET` | `/admin/ops/webhook-deliveries` | 웹훅 전달 내역 (`status=DEAD` 등, `serviceId`, 최신순 cursor) | | ✅ |
 | `POST` | `/admin/ops/webhook-deliveries/:deliveryId/redeliver` | 재전송 (`PENDING`으로, **서비스의 현재 webhookUrl로**, `attemptCount` 유지). 이미 대기·전송 중이면 200·감사 로그 없음. webhookUrl이 없으면 `400` | `WEBHOOK_REDELIVERED` | ✅ |
-| `GET` | `/admin/ops/pg-webhooks` | 토스 웹훅 수신 내역 (`status=FAILED` 등) | | 🚧 |
+| `GET` | `/admin/ops/pg-webhooks` | 토스 웹훅 수신 내역 (`status=FAILED` 등, `eventType`, 최신순 cursor, 토스 원본 본문 포함) | | ✅ |
 | `GET` | `/admin/reports/revenue` | 매출·환불 집계 (서비스별·일별·월별, KST 경계, `methodType`별) | | 🚧 |
-| `GET` | `/admin/audit-logs` | 감사 로그 (actor·대상·서비스·기간) | | 🚧 |
+| `GET` | `/admin/audit-logs` | 감사 로그 (`actorId`·`action`·`targetType`+`targetId`·`serviceId`·`from`·`to`, 최신순 cursor). 조회는 기록하지 않음 | | ✅ |
 
 **`GET /admin/payments` 필터**: `serviceId`, `status`(쉼표로 여러 개), `methodType`, `cardCompanyCode`, `from`, `to`, `externalUserId`, `externalOrderId`, `externalSubscriptionId`, `paymentKey`(토스), `limit`, `cursor`. 항목은 서비스 결제 응답 + `serviceId`·`providerPaymentKey`
 
