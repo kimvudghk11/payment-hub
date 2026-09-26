@@ -240,7 +240,10 @@ src
 - [x] DB 스키마 (17개 테이블, 복합 FK, 원장 트리거)
 - [x] NestJS 프로젝트 초기 세팅
 - [x] 전체 테이블 엔티티 매핑 + 상태 constants + 스키마 적합성 테스트
-- [ ] 공통: 에러 코드·예외 필터, 금액 transformer, 인증 가드(기본 거부)
+- [x] 공통: 에러 코드·예외 필터, 금액 transformer
+- [x] 인증: 기본 거부 전역 가드, 관리자 인증(AdminGuard)
+- [x] API 명세 ([docs/api.md](./docs/api.md))
+- [ ] 서비스 API 키 인증(ApiKeyGuard)
 - [ ] 서비스·API 키·PG 자격증명 관리 (admin API + 감사 로그)
 - [ ] 주문 사전 등록 → 결제 승인 → 원장 기장 → outbox
 - [ ] 취소/부분 취소, 빌링 자동결제, 가상계좌

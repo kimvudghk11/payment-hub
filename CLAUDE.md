@@ -379,6 +379,9 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 - 인증된 서비스 ID는 `req.serviceId`. 모든 조회·쓰기 쿼리에 `service_id` 조건 필수.
 - 어드민 API: AdminGuard가 admin 키 + 관리자 헤더 검증 (6장 참고). 인증된 관리자는 `req.adminActor`.
 - **가드는 기본 거부(default deny).** 모든 핸들러는 `@ServiceApi()`, `@AdminApi()`, `@Public()` 중 하나를 반드시 붙인다. 아무것도 없으면 전역 가드가 거부한다.
+  - 구조: 전역 `AuthGuard`(`common/guards/auth.module.ts`에서 `APP_GUARD` 등록)가 데코레이터를 읽고 `AdminGuard` / `ApiKeyGuard`에 위임한다. 데코레이터는 컨트롤러에도 붙일 수 있고 핸들러가 우선한다.
+  - `ADMIN_API_KEY_HASHES`에 SHA-256 hex가 아닌 값이 있으면 부팅을 실패시킨다. 비어 있으면 모든 관리자 요청을 거부한다.
+  - 관리자 헤더(`X-Admin-Actor-Id`/`-Name`, `X-Request-Id`)는 감사 로그 컬럼 길이(100자)를 넘으면 `400 INVALID_REQUEST`.
 - 서비스 API 키로 `/admin/*`에, admin 키로 서비스 API에 접근할 수 없다. 두 키는 섞이지 않는다.
 - 서버 간 통신 전용이므로 CORS는 기본 비활성.
 

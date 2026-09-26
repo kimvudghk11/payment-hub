@@ -6,6 +6,24 @@
 
 ### 2026-09-26
 
+#### feat(auth): 기본 거부 전역 가드 및 관리자 인증(AdminGuard) 추가
+- **무엇을**:
+  - `@Public()` / `@ServiceApi()` / `@AdminApi()` 데코레이터 (컨트롤러·핸들러 모두 가능, 핸들러 우선)
+  - 전역 `AuthGuard`(`APP_GUARD`): 데코레이터 없는 핸들러는 `401 UNAUTHORIZED` + 핸들러 이름 에러 로그
+  - `AdminGuard`: `Authorization: Bearer <admin_key>`를 SHA-256 해시로 `ADMIN_API_KEY_HASHES`와 `timingSafeEqual` 비교, `X-Admin-Actor-Id` 필수(`400 ADMIN_ACTOR_REQUIRED`), `X-Admin-Actor-Name` URL 디코딩, 관리자 헤더 100자 초과 `400 INVALID_REQUEST`, `req.adminActor` 설정
+  - `ADMIN_API_KEY_HASHES`에 잘못된 값이 있으면 부팅 실패, 비어 있으면 관리자 요청 전부 거부
+  - `req.serviceId` / `req.adminActor` 타입 확장, Bearer 토큰 추출 유틸
+- **왜**:
+  - 인증 누락은 조용히 열린 API가 되므로 "붙이는 걸 잊으면 막히는" 기본 거부 구조로 둠
+  - admin API는 actor 헤더를 신뢰하므로 키 검증이 유일한 관문 → 해시 비교 + 타이밍 공격 방지
+  - 설정 오타로 admin 키가 조용히 무시되면 장애 원인 파악이 어려움 → 부팅 시점에 실패
+  - actor 헤더는 감사 로그 컬럼(100자)에 들어가므로 입구에서 막지 않으면 쓰기 시점에 500이 됨
+- **변경 파일**: `src/common/decorators/auth.decorator.ts`, `src/common/guards/*`, `src/common/types/request-context.ts`, `src/app.module.ts`, `test/common/auth-guard.spec.ts`, `CLAUDE.md`, `docs/api.md`, `README.md`
+- **문서**: CLAUDE.md 8장 인증에 가드 구조·설정 검증·헤더 길이 규칙 추가
+- **남은 작업 / 주의**:
+  - `ApiKeyGuard`(서비스 API 키 DB 조회, revoked/expired/SUSPENDED/삭제 거부, `last_used_at` 비동기 갱신)는 다음 커밋. **그 전까지 `@ServiceApi` 핸들러는 전부 401**
+  - 부팅 시 모든 라우트에 데코레이터가 있는지 검사하는 기능은 없음 (현재는 요청 시점에 거부 + 로그)
+
 #### docs: API 명세 문서(docs/api.md) 추가
 - **무엇을**: 관리자 API(서비스 등록·수정·정지·삭제, API 키 발급·폐기, PG 자격증명, 상품 유형 등록·수정·중지, 결제 운영)와 서비스 API(주문, 결제 승인·빌링, 사용자별 결제 조회, 환불 가능 금액, 환불, 빌링키, 이벤트 재조회), hub → 서비스 웹훅 서명 규격, 연동 순서를 한 문서로 정리. API별 구현 상태(✅/🚧) 표시
 - **왜**:

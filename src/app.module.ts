@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { addTransactionalDataSource } from 'typeorm-transactional';
 import { databaseConfig } from './common/config/database.config';
+import { AuthModule } from './common/guards/auth.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { databaseConfig } from './common/config/database.config';
       },
     }),
     ScheduleModule.forRoot(),
+    AuthModule,
   ],
 })
 export class AppModule {}
