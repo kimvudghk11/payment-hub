@@ -11,6 +11,8 @@ export interface ReceivedWebhook {
 export class FakeWebhookReceiver {
   readonly received: ReceivedWebhook[] = [];
   status = 200;
+  /** start() 후 수신 URL */
+  webhookUrl = '';
   private server?: Server;
 
   async start(): Promise<string> {
@@ -24,7 +26,8 @@ export class FakeWebhookReceiver {
       });
     });
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
-    return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}/webhooks/payment-hub`;
+    this.webhookUrl = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}/webhooks/payment-hub`;
+    return this.webhookUrl;
   }
 
   reset(): void {

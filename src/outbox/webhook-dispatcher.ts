@@ -65,7 +65,10 @@ export class WebhookDispatcher {
   }
 
   private async deliver(delivery: WebhookDelivery, now: Date): Promise<boolean> {
-    const message = await this.buildMessage(delivery);
+    // 메시지 준비 실패(복호화할 수 없는 서명 키 등)도 이 건의 실패 시도로 기록한다 — 배치의 다른 건과 임대에 영향 없게
+    const message = await this.buildMessage(delivery).catch((error: unknown) => ({
+      error: `웹훅 서명 키를 읽을 수 없습니다 (${error instanceof Error ? error.message : String(error)})`,
+    }));
     const result: WebhookSendResult =
       'error' in message
         ? { ok: false, httpStatus: null, error: message.error }

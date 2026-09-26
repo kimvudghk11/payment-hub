@@ -37,6 +37,8 @@ export interface SyncResult {
 export interface ReconcileResult {
   checked: number;
   resolved: number;
+  /** 처리 중 예외가 난 건 (배치는 멈추지 않고 그 건을 대사 순서의 뒤로 보낸다) */
+  failed: number;
 }
 
 /**
@@ -77,11 +79,19 @@ export class PaymentReconciler {
     ];
 
     let resolved = 0;
+    let failed = 0;
     for (const candidate of candidates) {
-      const result = await this.lookup(candidate);
-      if ((await this.apply(candidate.paymentId, result)).resolved) resolved += 1;
+      try {
+        const result = await this.lookup(candidate);
+        if ((await this.apply(candidate.paymentId, result)).resolved) resolved += 1;
+      } catch (error) {
+        // 한 건(복호화할 수 없는 키, 깨진 데이터 등)이 배치 전체를 매번 멈추지 않게: 기록하고 뒤로 보낸다
+        failed += 1;
+        this.logger.error('결제 ' + candidate.paymentId + ' 대사 실패: ' + errorMessage(error));
+        await this.payments.update({ paymentId: candidate.paymentId }, { updatedAt: new Date() });
+      }
     }
-    return { checked: candidates.length, resolved };
+    return { checked: candidates.length, resolved, failed };
   }
 
   /** 환불 대사: 2분 이상 지난 REQUESTED·UNKNOWN 취소를 같은 멱등키로 토스에 다시 확인 (PaymentCancelService.resolvePending) */
@@ -96,10 +106,17 @@ export class PaymentReconciler {
       take: limit,
     });
     let resolved = 0;
+    let failed = 0;
     for (const { paymentCancelId } of candidates) {
-      if (await this.cancelService.resolvePending(paymentCancelId)) resolved += 1;
+      try {
+        if (await this.cancelService.resolvePending(paymentCancelId)) resolved += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.error('환불 ' + paymentCancelId + ' 대사 실패: ' + errorMessage(error));
+        await this.cancels.update({ paymentCancelId }, { updatedAt: new Date() });
+      }
     }
-    return { checked: candidates.length, resolved };
+    return { checked: candidates.length, resolved, failed };
   }
 
   /**
@@ -173,3 +190,6 @@ export class PaymentReconciler {
     return matches;
   }
 }
+
+/** 로그용 메시지 (비밀값을 담지 않는 예외 메시지만) */
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));

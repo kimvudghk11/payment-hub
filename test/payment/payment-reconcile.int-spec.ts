@@ -218,6 +218,51 @@ describe('대사 배치 — 결과 불명·멈춘 결제를 토스 조회로 확
     expect(await orderStatus(orderId)).toBe('PENDING');
   });
 
+  it('한 건이 실패해도(복호화할 수 없는 토스 키 등) 배치 전체가 멈추지 않는다 — 실패 건은 뒤로 보내고 다음 건을 처리', async () => {
+    const broken = await onboardPayableService(ctx);
+    const brokenAuth = { Authorization: `Bearer ${broken.apiKey}` };
+    const brokenOrder = await ctx
+      .http()
+      .post('/api/v1/orders')
+      .set(brokenAuth)
+      .send({
+        externalOrderId: `rc-broken-${seq++}`,
+        externalUserId: 'user-1',
+        orderName: '요금제',
+        items: [{ productType: 'PLAN', externalProductId: 'pro', productName: '프로', unitPrice: 30000, quantity: 1 }],
+        totalAmount: 30000,
+      });
+    const brokenRes = await ctx
+      .http()
+      .post('/api/v1/payments/confirm')
+      .set(brokenAuth)
+      .send({
+        orderId: dataOf<{ orderId: string }>(brokenOrder).orderId,
+        paymentKey: `tgen_rc_broken_${seq++}`,
+        amount: 30000,
+      });
+    const brokenPaymentId = errorOf(brokenRes).detail?.paymentId as string;
+    // 키링에 없는 키로 암호화된 것처럼 암호문을 망가뜨린다
+    await ctx.dataSource.query(
+      `UPDATE tb_pg_credential SET secret_key_enc = decode(repeat('00', 40), 'hex') WHERE service_id = $1`,
+      [broken.serviceId],
+    );
+    await ctx.dataSource.query(`UPDATE tb_payment SET updated_at = now() - interval '1 hour' WHERE id = $1`, [
+      brokenPaymentId,
+    ]);
+
+    const { orderId, paymentKey, paymentId } = await unknownPayment();
+    tossState.set(paymentKey, () => ({ status: 200, body: tossPaymentFor(orderId, paymentKey, {}) }));
+
+    const result = await reconciler.reconcileDue(later());
+
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+    expect((await paymentRow(paymentId)).status).toBe('DONE');
+    const brokenRow = await paymentRow(brokenPaymentId);
+    expect(brokenRow.status).toBe('UNKNOWN');
+    expect(new Date(brokenRow.updated_at).getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
   it('방금 생긴 결과 불명 결제는 건드리지 않는다 (진행 중인 승인과 겹치지 않게 2분 이상 지난 것만)', async () => {
     const { paymentKey, paymentId } = await unknownPayment();
 

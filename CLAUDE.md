@@ -317,6 +317,7 @@ cancel(cancelAmount: number, reasonCode: string): PaymentCancel {
 - 같은 주문의 결제 요청은 **주문 행 `pessimistic_write` 락**으로 직렬화한다 (락 안에서 재요청·살아있는 결제 확인 → 토스 승인은 한 번).
 - 결제 상태가 정해진 뒤의 후속 기록(주문 상태·원장·outbox)은 `PaymentOutcomeService.record()` 하나로. 승인·대사가 같은 규칙을 쓴다.
 - 주기 배치(웹훅 발송, 대사)는 `common/scheduling/interval-job.ts`의 `registerIntervalJob`으로 등록한다. 설정은 `<PREFIX>_ENABLED`(false면 끔)·`<PREFIX>_INTERVAL_MS`. 여러 인스턴스에서 돌아도 안전해야 한다 (행 잠금·상태 재확인).
+- 배치는 **건 단위로 실패를 격리**한다. 한 건의 예외(복호화할 수 없는 키, 깨진 데이터)가 배치 전체를 매 틱 멈추면 안 된다 — 로그를 남기고 그 건을 순서의 뒤로 보내거나 실패 시도로 기록한 뒤 다음 건을 처리한다.
 - 금액이 바뀌는 쓰기는 대상 행을 `pessimistic_write` 락으로 조회.
 - 에러는 아래 "에러 처리" 규칙을 따른다. NestJS 내장 예외(`BadRequestException` 등)를 직접 던지지 않는다.
 

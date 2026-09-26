@@ -6,6 +6,19 @@
 
 ### 2026-09-27
 
+#### fix(batch): 대사·웹훅 발송 배치에서 한 건의 실패가 배치 전체를 멈추던 문제 수정
+- **무엇을**:
+  - `PaymentReconciler.reconcileDue`·`reconcileCancelsDue`: 건마다 예외를 잡아 에러 로그 → 그 건의 `updated_at`만 갱신(순서의 뒤로) → 다음 건 계속. 결과에 `failed` 수 추가
+  - `WebhookDispatcher`: 메시지 준비(서명 키 복호화) 실패를 그 건의 실패 시도로 기록 (`RETRYING`·백오프). 이전에는 `Promise.all`이 통째로 실패해 같은 배치의 다른 건 결과가 기록되지 않고 임대 만료까지 `PROCESSING`에 묶임
+  - 테스트: 토스 키·서명 키 암호문을 일부러 망가뜨린 건이 섞여 있어도 나머지가 처리되는지 (결제 대사·환불 대사·웹훅 발송)
+  - CLAUDE.md 8장 서비스 레이어에 "배치는 건 단위로 실패를 격리" 규칙 추가
+- **왜**:
+  - 통합 테스트 전체 실행이 가끔 실패하던 원인 추적 결과: 테스트 파일마다 암호화 키가 달라, 앞 파일이 남긴 결제의 토스 키를 뒤 파일에서 복호화하지 못해 대사 배치가 첫 건에서 예외로 중단됐음 (수정 전 3회 중 2회 실패 → 수정 후 5회 모두 통과)
+  - 운영에서도 같은 일이 생김: 키 교체 후 이전 키를 키링에서 지웠거나 데이터가 깨진 한 건이 있으면, 그 건이 매 틱 가장 오래된 후보로 뽑혀 대사·발송이 영원히 멈춤 (poison item)
+- **변경 파일**: `src/payment/payment-reconciler.ts`, `src/outbox/webhook-dispatcher.ts`, `test/payment/{payment-reconcile,cancel-reconcile}.int-spec.ts`, `test/outbox/webhook-dispatch.int-spec.ts`, `test/support/fake-webhook-receiver.ts`, `CLAUDE.md`
+- **문서**: CLAUDE.md 8장 서비스 레이어 규칙 추가
+- **남은 작업 / 주의**: 복호화 실패 건은 계속 실패로 남으므로 로그 알림으로 감지해야 함 (키링 설정 오류의 신호)
+
 #### feat(admin): 매출·환불 리포트 API(GET /admin/reports/revenue) 추가
 - **무엇을**: 원장(`tb_ledger_transaction`·`tb_ledger_entry`·`tb_ledger_account`)에서 서비스·기간(KST 일/월)·통화별 매출(REVENUE 대변)·환불(REFUND 차변)·순매출·결제/환불 건수 집계 + 통화별 합계. `from`·`to`(KST, 포함, 최대 366일), `groupBy=day|month`, `serviceId`. 금액 합계가 안전 정수 범위를 넘으면 실패. 예제 `getRevenueReport`, api.md 2.5, admin 가이드, README, OpenAPI
 - **왜**:

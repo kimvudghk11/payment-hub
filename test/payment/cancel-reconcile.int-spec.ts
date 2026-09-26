@@ -129,6 +129,29 @@ describe('환불 대사 — 결과 불명·멈춘 취소를 같은 멱등키로 
     expect((await cancelRow(paymentCancelId)).status).toBe('DONE');
   });
 
+  it('한 건이 실패해도(복호화할 수 없는 토스 키) 나머지 환불 대사는 계속된다', async () => {
+    const good = await unknownCancel();
+    const originalService = service;
+    service = await onboardPayableService(ctx);
+    const bad = await unknownCancel();
+    service = originalService;
+    await ctx.dataSource.query(
+      `UPDATE tb_pg_credential SET secret_key_enc = decode(repeat('00', 40), 'hex')
+        WHERE service_id = (SELECT service_id FROM tb_payment_cancel WHERE id = $1)`,
+      [bad.paymentCancelId],
+    );
+    await ctx.dataSource.query(`UPDATE tb_payment_cancel SET updated_at = now() - interval '1 hour' WHERE id = $1`, [
+      bad.paymentCancelId,
+    ]);
+    toss.respond((request) => ({ status: 200, body: canceledPayment(request) }));
+
+    const result = await reconciler.reconcileCancelsDue(later());
+
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+    expect((await cancelRow(good.paymentCancelId)).status).toBe('DONE');
+    expect((await cancelRow(bad.paymentCancelId)).status).toBe('UNKNOWN');
+  });
+
   it('방금 생긴 결과 불명 취소는 건드리지 않는다 (2분 이상 지난 것만)', async () => {
     const { paymentCancelId } = await unknownCancel();
 

@@ -183,6 +183,30 @@ describe('웹훅 발송 워커 — outbox → 서비스 webhookUrl', () => {
     expect(await deliveryOf(paymentId)).toMatchObject({ status: 'SUCCEEDED', attempt_count: 1 });
   });
 
+  it('서명 키를 복호화할 수 없는 건이 섞여 있어도 나머지는 보내고, 그 건은 실패로 기록해 재시도한다', async () => {
+    const broken = await onboardPayableService(ctx, { webhookUrl: receiver.webhookUrl });
+    const brokenPaymentId = await confirmPayment(broken);
+    const goodPaymentId = await confirmPayment();
+    await ctx.dataSource.query(
+      `UPDATE tb_webhook_delivery SET next_attempt_at = now() + interval '1 day'
+        WHERE status IN ('PENDING', 'RETRYING')
+          AND event_id NOT IN (SELECT id FROM tb_outbox_event WHERE aggregate_id IN ($1, $2))`,
+      [brokenPaymentId, goodPaymentId],
+    );
+    await ctx.dataSource.query(
+      `UPDATE tb_service SET webhook_secret_enc = decode(repeat('00', 40), 'hex') WHERE id = $1`,
+      [broken.serviceId],
+    );
+
+    const result = await dispatcher.dispatchDue();
+
+    expect(result).toEqual({ claimed: 2, succeeded: 1, failed: 1 });
+    expect(await deliveryOf(goodPaymentId)).toMatchObject({ status: 'SUCCEEDED' });
+    const failed = await deliveryOf(brokenPaymentId);
+    expect(failed).toMatchObject({ status: 'RETRYING', attempt_count: 1 });
+    expect(failed.last_error).toContain('서명 키');
+  });
+
   // 이 서비스의 서명 키를 지우므로 마지막에 둔다
   it('webhookSecret이 없는 서비스는 서명할 수 없으므로 보내지 않고 실패로 남긴다', async () => {
     const paymentId = await confirmPayment();
