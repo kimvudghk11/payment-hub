@@ -2,7 +2,7 @@ import { AddressInfo } from 'net';
 import { PaymentHubAdminClient } from '../../examples/admin-client';
 import { PaymentHubError } from '../../examples/http';
 import { PaymentHubServiceClient } from '../../examples/service-client';
-import { FakeToss } from '../support/fake-toss';
+import { FakeToss, canceledPayment } from '../support/fake-toss';
 import { ADMIN_KEY, IntegrationApp, createIntegrationApp, uniqueServiceCode } from '../support/integration-app';
 
 /**
@@ -95,6 +95,33 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(await client.getPayment(payment.paymentId)).toMatchObject({ externalOrderId: 'ex-pay-1' });
     expect(history.data.map((p) => p.paymentId)).toEqual([payment.paymentId]);
     expect(refundable).toMatchObject({ refundableAmount: 10000, items: [{ cancelableQuantity: 1 }] });
+  });
+
+  it('환불: 환불 가능 금액 확인 → 부분 환불 → 같은 멱등키 재시도는 같은 결과', async () => {
+    const { apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    const { order } = await client.createOrder(orderInput('ex-refund-1'));
+    const payment = await client.confirmPayment({ orderId: order.orderId, paymentKey: 'tgen_ex_r1', amount: 10000 });
+    toss.respond((request) => ({ status: 200, body: canceledPayment(request) }));
+
+    const { refundableAmount, items } = await client.getRefundable(payment.paymentId);
+    const input = {
+      amount: 4000,
+      reasonCode: 'USER_REQUEST',
+      reasonDetail: '일할 환불',
+      idempotencyKey: 'ex-refund-1-first',
+      items: [{ orderItemId: items[0].orderItemId, quantity: 1, amount: 4000 }],
+    };
+    const refunded = await client.cancelPayment(payment.paymentId, input);
+    const retried = await client.cancelPayment(payment.paymentId, input);
+
+    expect(refundableAmount).toBe(10000);
+    expect(refunded).toMatchObject({
+      cancel: { status: 'DONE', amount: 4000 },
+      payment: { status: 'PARTIAL_CANCELED', refundableAmount: 6000 },
+    });
+    expect(retried.cancel.paymentCancelId).toBe(refunded.cancel.paymentCancelId);
+    expect((await client.getPayment(payment.paymentId)).cancels).toHaveLength(1);
   });
 
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {

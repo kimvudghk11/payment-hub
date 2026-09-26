@@ -425,7 +425,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 |---|---|---|---|
 | `POST` | `/payments/confirm` | 일반 결제 승인 (결제창 인증 후) | ✅ |
 | `POST` | `/payments/billing` | 빌링키 자동결제 | 🚧 |
-| `GET` | `/payments/:paymentId` | 결제 단건 — 수단 분류, 환불 가능 금액, 실패 사유 (취소 이력은 환불 구현 시 추가) | ✅ |
+| `GET` | `/payments/:paymentId` | 결제 단건 — 수단 분류, 환불 가능 금액, 실패 사유, 취소 이력(`cancels`) | ✅ |
 | `GET` | `/payments` | 결제 목록 — **사용자별 조회** | ✅ |
 | `GET` | `/payments/:paymentId/refundable` | 환불 가능 금액·항목별 취소 가능 수량 | ✅ |
 
@@ -605,7 +605,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| `POST` | `/payments/:paymentId/cancel` | 전체·부분 환불 | 🚧 |
+| `POST` | `/payments/:paymentId/cancel` | 전체·부분 환불 | ✅ |
 
 ```json
 {
@@ -614,26 +614,62 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
   "reasonDetail": "추가 저장공간 1개 환불",
   "idempotencyKey": "svc-a-refund-0001",
   "items": [ { "orderItemId": "c2...", "quantity": 1, "amount": 3000 } ],
-  "refundReceiveAccount": { "bankCode": "20", "accountNumber": "1002...", "holderName": "홍길동" }
+  "refundReceiveAccount": { "bankCode": "20", "accountNumber": "1002123456789", "holderName": "홍길동" }
 }
 ```
 
 | 필드 | 필수 | 설명 |
 |---|---|---|
-| `amount` | ✅ | 환불 금액. **금액 계산(일할 등)은 서비스 책임** |
-| `reasonCode` | ✅ | 서비스 정의 값. hub는 저장만 |
-| `idempotencyKey` | ✅ | 재시도 시 같은 결과 반환 |
-| `items` | | 항목별 취소 수량 기록 (부분 환불 추적용) |
-| `refundReceiveAccount` | 가상계좌만 ✅ | 환불받을 계좌. 토스에 전달만 하고 **hub는 저장하지 않는다** |
+| `amount` | ✅ | 환불 금액(1 이상). **금액 계산(일할 등)은 서비스 책임**, 상한은 환불 가능 금액 |
+| `reasonCode` | ✅ | 서비스 정의 값(최대 50자). hub는 저장만 |
+| `reasonDetail` | | 최대 200자. 토스 취소 사유로 전달 (없으면 `reasonCode`) |
+| `idempotencyKey` | ✅ | 최대 100자. `(서비스, idempotencyKey)`가 멱등키 |
+| `items` | | 항목별 취소 기록 (부분 환불 추적용). 주면 **항목 금액 합계 = `amount`** |
+| `refundReceiveAccount` | 가상계좌만 ✅ | 환불받을 계좌(`bankCode` 숫자 2~3자리, `accountNumber` 숫자 6~20자리, `holderName`). 토스에 전달만 하고 **hub는 저장하지 않는다** |
 
-| 검증 | 실패 시 |
-|---|---|
-| 취소 가능한 상태 (`DONE`, `PARTIAL_CANCELED`) | `409 PAYMENT_NOT_CANCELABLE` |
-| `amount ≤ refundableAmount` | `400 CANCEL_AMOUNT_EXCEEDED` + `detail.refundableAmount` |
-| 동시 환불 요청 | 결제 행 락으로 직렬화 — 합계가 결제 금액을 넘지 않음 |
+처리 순서: 결제 행 락 → 검증 → 취소 `REQUESTED` 선기록 → 토스 취소(트랜잭션 밖, 취소 건 단위 멱등키) → 결과 반영 + 결제·주문·항목 취소 수량 + 원장 반대 분개(차 REFUND / 대 PG_RECEIVABLE) + `PAYMENT_CANCELED` 웹훅 이벤트(한 트랜잭션).
 
-응답은 취소 건(`paymentCancelId`, `status`, `amount`)과 갱신된 결제 요약(`refundedAmount`, `refundableAmount`, `status`).
-전액 환불이면 결제 `CANCELED`, 일부면 `PARTIAL_CANCELED`.
+| 상황 | 응답 | 취소 상태 | 서비스가 할 일 |
+|---|---|---|---|
+| 환불 완료 | `200` | `DONE` | 완료 처리. 결제는 전액이면 `CANCELED`, 일부면 `PARTIAL_CANCELED` |
+| 같은 `idempotencyKey`·같은 내용 재요청 | 처음과 같은 결과 | 그대로 | 토스를 다시 부르지 않는다 |
+| 같은 키·다른 내용 (금액·사유 코드·항목) | `409 CANCEL_IDEMPOTENCY_CONFLICT` | | 키 생성 로직 확인 |
+| 다른 서비스의 결제 | `404 PAYMENT_NOT_FOUND` | 기록 안 함 | |
+| 취소할 수 없는 상태 (`DONE`·`PARTIAL_CANCELED` 외) | `409 PAYMENT_NOT_CANCELABLE` | 기록 안 함 | |
+| 환불 가능 금액 초과 | `400 CANCEL_AMOUNT_EXCEEDED` + `detail.refundableAmount` | 기록 안 함 | 금액 재계산 |
+| 항목 오류 (다른 주문 항목, 중복, 취소 가능 수량 초과, 합계 불일치) | `400 INVALID_REQUEST` + `detail.errors` | 기록 안 함 | |
+| 가상계좌인데 환불 계좌 없음 | `400 INVALID_REQUEST` (`refundReceiveAccount`) | 기록 안 함 | |
+| **토스 거절** (취소 불가 금액 등) | `409 CANCEL_REJECTED` + `detail.pgCode`·`pgMessage` | `FAILED` | 사유 확인. 새 `idempotencyKey`로 다시 요청 가능 (실패한 취소는 금액을 잡아두지 않음) |
+| **토스 응답 지연·연결 실패** | `504 PG_TIMEOUT` + `detail.paymentCancelId` | `UNKNOWN` | 같은 `idempotencyKey`로 재요청하면 `409 CANCEL_IN_PROGRESS`. 결과는 `GET /payments/:id`의 `cancels`로 확인 |
+| 토스 5xx·이미 취소됨 | `502 PG_ERROR` | `UNKNOWN` | 위와 같음 |
+
+- **환불 가능 금액 = 결제 금액 − 환불 완료 − 처리 중(`REQUESTED`·`UNKNOWN`) 환불.** 동시에 들어온 부분 환불도 결제 행 락으로 직렬화되어 합계가 결제 금액을 넘지 않는다
+- 결과 불명(`UNKNOWN`) 환불의 자동 확정(대사)은 🚧 — 그 전까지 그 금액은 환불 가능 금액에서 빠진 채로 남는다
+
+```json
+// 응답 200
+{
+  "success": true,
+  "message": "환불이 완료되었습니다.",
+  "data": {
+    "cancel": {
+      "paymentCancelId": "d7e8...",
+      "status": "DONE",
+      "amount": 3000,
+      "reasonCode": "USER_REQUEST",
+      "reasonDetail": "추가 저장공간 1개 환불",
+      "requestedBy": "SERVICE",
+      "items": [ { "orderItemId": "c2...", "quantity": 1, "amount": 3000 } ],
+      "failure": null,
+      "canceledAt": "2026-09-28T00:00:00.000Z",
+      "createdAt": "2026-09-28T00:00:00.000Z"
+    },
+    "payment": { "paymentId": "a9d2...", "status": "PARTIAL_CANCELED", "refundedAmount": 3000, "refundableAmount": 27000, "...": "결제 응답과 같은 형태" }
+  }
+}
+```
+
+`GET /payments/:paymentId`는 결제에 `cancels`(위 `cancel` 형태, 오래된 순)를 붙여 준다.
 
 ### 3.5 결제 수단 (빌링키)
 
@@ -708,7 +744,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `PAYMENT_CONFIRMED` | 결제 승인 완료 (가상계좌는 입금 완료) |
 | `PAYMENT_FAILED` | 결제 실패 확정 (대사 결과 포함) |
 | `PAYMENT_WAITING_FOR_DEPOSIT` | 가상계좌 발급, 입금 대기 |
-| `PAYMENT_CANCELED` | 전체·부분 환불 완료 |
+| `PAYMENT_CANCELED` | 전체·부분 환불 완료. `data.cancel`에 이번 취소 건(`paymentCancelId`, `amount`, `reasonCode`, `canceledAt`) |
 | `ORDER_EXPIRED` | 결제 없이 주문 만료 |
 
 `data`는 결제 "사실"만 담는다 — 서비스가 자기 주문을 찾을 수 있게 `externalOrderId`·`externalUserId`를 넣고, PG 응답 원본·원장은 넣지 않는다. `failureCode`·`failureMessage`는 `PAYMENT_FAILED`일 때 토스 원본 사유.

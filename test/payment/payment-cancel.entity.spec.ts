@@ -219,3 +219,23 @@ describe('취소 확정 — PaymentCancel.markDone → Payment·Order·OrderItem
     expect(() => cancel.markFailed({ code: 'X', message: 'x' })).toThrow('DONE');
   });
 });
+
+describe('PaymentCancel.matches — 같은 idempotencyKey 재요청이 같은 환불인지', () => {
+  it('같은 결제·금액·사유 코드·항목이면 true (사유 상세·항목 순서는 비교하지 않음)', () => {
+    const { order, payment } = setup();
+    const cancel = payment.requestCancel(request(), order.items);
+
+    expect(cancel.matches('pay-1', request({ reasonDetail: '다른 문구' }))).toBe(true);
+  });
+
+  it.each([
+    ['다른 결제', 'pay-2', request()],
+    ['다른 금액', 'pay-1', request({ amount: 6000, items: [] })],
+    ['다른 사유 코드', 'pay-1', request({ reasonCode: 'ADMIN' })],
+    ['다른 항목', 'pay-1', request({ items: [{ orderItemId: 'item-1', quantity: 1, amount: 3000 }] })],
+  ])('%s면 false', (_, paymentId, other) => {
+    const { order, payment } = setup();
+    const cancel = payment.requestCancel(request(), order.items);
+    expect(cancel.matches(paymentId, other)).toBe(false);
+  });
+});

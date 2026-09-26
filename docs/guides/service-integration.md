@@ -38,7 +38,7 @@
 | 결제창 설정 | `GET /pg/client-config` | ✅ |
 | 주문 등록·조회 | `POST /orders`, `GET /orders`, `GET /orders/:id` | ✅ |
 | 결제 승인·조회 | `POST /payments/confirm`, `GET /payments`, `GET /payments/:id`, `GET /payments/:id/refundable` | ✅ |
-| 환불 | `POST /payments/:id/cancel` | 🚧 |
+| 환불 | `POST /payments/:id/cancel` | ✅ |
 | 정기결제·빌링키 | `POST /payments/billing`, `/billing-keys` | 🚧 |
 | 웹훅 발송 | hub → 서비스 (`PAYMENT_CONFIRMED`·`PAYMENT_WAITING_FOR_DEPOSIT`·`PAYMENT_FAILED`) | ✅ |
 
@@ -120,7 +120,7 @@ Content-Type: application/json
 | 주문 등록 | `externalOrderId` | 같은 내용이면 기존 주문 `200` (새로 만들면 `201`) / 다르면 `409` |
 | 결제 승인 | `paymentKey` | 기록된 결과 (성공·실패 모두. 토스를 다시 부르지 않음) |
 | 자동결제 🚧 | `idempotencyKey` | 기존 결과 |
-| 환불 🚧 | `idempotencyKey` | 기존 결과 |
+| 환불 | `idempotencyKey` | 같은 내용이면 기록된 결과, 다르면 `409 CANCEL_IDEMPOTENCY_CONFLICT` |
 
 권장: 타임아웃 10초, 5xx·네트워크 오류는 지수 백오프로 최대 3회 재시도, 4xx는 재시도하지 않는다.
 단, **결제 승인의 `504 PG_TIMEOUT`은 재시도 대상이 아니다** — 결과 확인 중이라는 뜻이므로 조회나 웹훅을 기다린다.
@@ -305,10 +305,29 @@ const refundable = await paymentHub.getRefundable(paymentId);              // �
 
 ## 6. 정기결제·환불
 
-계약은 확정, 구현 예정 🚧 (환불 가능 금액 조회만 ✅). 흐름만 먼저 설계에 반영해 둔다.
+환불 ✅ · 정기결제 🚧.
 
 - **정기결제**: 사용자 카드 등록(빌링키) → 서비스 배치가 결제일·재시도를 판단 → `POST /orders` → `POST /payments/billing { orderId, billingKeyId, idempotencyKey }`. 멱등키는 `구독ID-결제회차`처럼 재시도에도 같은 값
-- **환불**: `GET /payments/:id/refundable` ✅로 환불 가능 금액 확인 → 서비스가 금액 계산(일할 등) → `POST /payments/:id/cancel { amount, reasonCode, idempotencyKey, items? }`
+- **환불** ✅: 환불 가능 금액 확인 → 서비스가 금액 계산(일할 등) → 환불 요청
+
+```ts
+const { refundableAmount, items } = await paymentHub.getRefundable(paymentId);
+const amount = Math.min(calculateProratedRefund(subscription), refundableAmount); // 금액 계산은 서비스 책임
+
+const { cancel, payment } = await paymentHub.cancelPayment(paymentId, {
+  amount,
+  reasonCode: 'USER_REQUEST',            // 서비스 정의 값
+  reasonDetail: '구독 중도 해지 일할 환불', // 토스 취소 사유로 전달
+  idempotencyKey: myRefundRequest.id,    // 재시도할 때 같은 값
+  // items: [{ orderItemId, quantity, amount }]  // 항목별로 추적하려면 (합계 = amount)
+});
+// cancel.status === 'DONE', payment.status === 'PARTIAL_CANCELED' | 'CANCELED'
+```
+
+  - 네트워크 오류·`504 PG_TIMEOUT`이면 **같은 `idempotencyKey`로 재시도**해도 안전하다 (처리 중이면 `409 CANCEL_IN_PROGRESS`, 끝났으면 기록된 결과)
+  - `409 CANCEL_REJECTED`는 토스가 거절한 것. `detail.pgMessage`를 확인하고, 다시 시도할 때는 새 `idempotencyKey`를 쓴다
+  - 환불이 확정되면 웹훅 `PAYMENT_CANCELED`(`data.cancel`에 이번 취소 건)도 온다
+  - 가상계좌 결제는 `refundReceiveAccount`(은행 코드·계좌번호·예금주)가 필요하다. hub는 이 값을 저장하지 않는다
 - **후속 처리 실패 시 hub는 자동 환불하지 않는다.** 이용권 지급이 실패하면 서비스가 판단해 환불 API를 호출한다
 
 ---
@@ -399,6 +418,11 @@ app.post('/webhooks/payment-hub', express.raw({ type: 'application/json' }), asy
 | `PAYMENT_REJECTED` | 402 | 토스 거절 (카드 한도 초과 등) | `detail.pgMessage`를 사용자에게 안내. 새 결제창으로 재시도 가능 |
 | `PAYMENT_NOT_FOUND` | 404 | 없는 결제·다른 서비스 결제 | paymentId 확인 |
 | `PG_CREDENTIAL_NOT_FOUND` | 500 | hub에 토스 키 미등록 | admin 문의 |
+| `CANCEL_AMOUNT_EXCEEDED` | 400 | 환불 가능 금액 초과 (처리 중 환불 포함) | `detail.refundableAmount` 이하로 재계산 |
+| `CANCEL_IDEMPOTENCY_CONFLICT` | 409 | 같은 환불 멱등키로 다른 내용 | 키 생성 로직 확인 |
+| `CANCEL_IN_PROGRESS` | 409 | 같은 환불이 처리 중·결과 불명 | `GET /payments/:id`의 `cancels`로 확인 |
+| `CANCEL_REJECTED` | 409 | 토스가 취소 거절 | `detail.pgMessage` 확인, 새 멱등키로 재요청 가능 |
+| `PAYMENT_NOT_CANCELABLE` | 409 | 승인되지 않은·전액 환불된 결제 | 결제 상태 확인 |
 | `PG_TIMEOUT` | 504 | 토스 응답 지연·연결 실패 (결제 `UNKNOWN`) | **재시도 금지.** `detail.paymentId`로 조회·웹훅으로 결과 확인 |
 | `PG_ERROR` | 502 | 토스 5xx(결제 `UNKNOWN`) 또는 hub의 토스 키 문제(`FAILED`, `detail.pgCode`) | `detail.paymentStatus`가 `UNKNOWN`이면 재시도 금지·결과 조회, `FAILED`면 admin 문의 |
 | `INTERNAL_ERROR` | 500 | hub 내부 오류 | 백오프 후 재시도, 계속되면 문의 |

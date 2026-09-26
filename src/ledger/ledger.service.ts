@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { PaymentCancel } from '../payment/domain/payment-cancel.entity';
 import { Payment } from '../payment/domain/payment.entity';
 import { LEDGER_ACCOUNT_TYPES, LedgerAccountCode } from './constants/ledger.constants';
 import { LedgerAccount } from './domain/ledger-account.entity';
@@ -24,6 +25,17 @@ export class LedgerService {
     const transaction = LedgerTransaction.paymentCaptured(payment, {
       pgReceivableAccountId: await this.accountId(payment.serviceId, LedgerAccountCode.PG_RECEIVABLE, payment.currency),
       revenueAccountId: await this.accountId(payment.serviceId, LedgerAccountCode.REVENUE, payment.currency),
+    });
+    await this.transactions.insert(transaction);
+    await this.entries.insert(transaction.entries);
+    return transaction;
+  }
+
+  /** 환불(취소 확정 건): 차) 환불 / 대) PG 미수금 */
+  async recordPaymentCanceled(cancel: PaymentCancel, currency: string): Promise<LedgerTransaction> {
+    const transaction = LedgerTransaction.paymentCanceled(cancel, currency, {
+      refundAccountId: await this.accountId(cancel.serviceId, LedgerAccountCode.REFUND, currency),
+      pgReceivableAccountId: await this.accountId(cancel.serviceId, LedgerAccountCode.PG_RECEIVABLE, currency),
     });
     await this.transactions.insert(transaction);
     await this.entries.insert(transaction.entries);

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { IncomingHttpHeaders, Server, createServer } from 'http';
 import { AddressInfo } from 'net';
 
@@ -30,6 +31,20 @@ export const approvedCardPayment = (request: FakeTossRequest, overrides: Record<
   approvedAt: '2026-09-27T10:16:03+09:00',
   card: { issuerCode: '11', number: '433012******123*', installmentPlanMonths: 0, cardType: '신용' },
   receipt: { url: 'https://dashboard.tosspayments.com/receipt/fake' },
+  ...overrides,
+});
+
+/** 취소 성공 응답: 결제 객체 + cancels 마지막에 이번 취소 (transactionKey는 실제 토스처럼 전역 유일) */
+export const canceledPayment = (request: FakeTossRequest, overrides: Record<string, unknown> = {}) => ({
+  paymentKey: decodeURIComponent(request.path.split('/')[3] ?? ''),
+  status: 'PARTIAL_CANCELED',
+  cancels: [
+    {
+      transactionKey: `tx_cancel_${randomUUID()}`,
+      cancelAmount: request.body.cancelAmount,
+      canceledAt: '2026-09-28T09:00:00+09:00',
+    },
+  ],
   ...overrides,
 });
 

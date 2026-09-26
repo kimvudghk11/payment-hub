@@ -6,6 +6,26 @@
 
 ### 2026-09-27
 
+#### feat(payment): 환불 API(POST /payments/:id/cancel) 및 결제 단건 취소 이력 추가
+- **무엇을**:
+  - `POST /payments/:paymentId/cancel`: (tx1) 결제 행 락 → 멱등 재요청 확인 → 검증(`Payment.requestCancel`) → 취소 `REQUESTED`(+항목) 선기록 → 토스 취소(트랜잭션 밖, 멱등키 `cancel:<paymentCancelId>`) → (tx2) 취소 `DONE` + 결제 환불 누적·상태 + 주문 상태·항목 취소 수량 + 원장 `PAYMENT_CANCELED`(차 REFUND / 대 PG_RECEIVABLE) + outbox `PAYMENT_CANCELED`
+  - 결과별: 토스 거절 → 취소 `FAILED` + `409 CANCEL_REJECTED`(`detail.pgCode·pgMessage`), 타임아웃·연결 실패 → `UNKNOWN` + `504 PG_TIMEOUT`, 5xx·이미 취소됨 → `UNKNOWN` + `502 PG_ERROR`. 에러는 tx2 커밋 뒤에 던짐
+  - 멱등: `(서비스, idempotencyKey)` — 같은 내용(`PaymentCancel.matches`: 결제·금액·사유 코드·항목)이면 기록된 결과, 다르면 `409 CANCEL_IDEMPOTENCY_CONFLICT`, 처리 중이면 `409 CANCEL_IN_PROGRESS`
+  - 가상계좌 결제는 `refundReceiveAccount` 필수 (토스에 전달만, 저장 안 함)
+  - `GET /payments/:id` 응답에 `cancels`(취소 이력) 추가
+  - `LedgerService.recordPaymentCanceled`, `OutboxService.publishPaymentCancelEvent`, `hubErrorForTossRejection`에 거절 코드 인자
+  - 연동: `examples/service-client.ts`에 `cancelPayment`·`PaymentDetail`, 가이드 6장 환불 예제·에러 표, api.md 3.4·4장, OpenAPI 재생성
+  - 테스트 가짜 토스의 취소 `transactionKey`를 전역 유일하게 (테스트 파일 간 유니크 충돌)
+- **왜**:
+  - 결제와 같은 "외부 호출 전 기록" 흐름으로 "환불은 됐는데 기록이 없는" 상태를 막음
+  - 결제 행 락 + 처리 중 환불 차감: 동시 부분 환불 합계가 결제 금액을 넘지 않음. 락을 빼면 결정적 동시성 테스트가 실패하는 것을 확인
+  - 토스 멱등키를 서비스 멱등키가 아니라 취소 건 ID로: 서비스 키가 바뀌어도 같은 취소 건은 토스에서 한 번만 처리됨
+  - 환불 거절을 `PAYMENT_REJECTED`(결제 승인 거절)와 다른 코드로 — 서비스가 결제·환불 실패를 분기할 수 있게
+- **변경 파일**: `src/payment/{payment-cancel.service,payment.controller,payment.service,payment.module}.ts`, `src/payment/dto/request/cancel-payment.request.dto.ts`, `src/payment/dto/response/payment-cancel.response.dto.ts`, `src/payment/domain/payment-cancel.entity.ts`, `src/ledger/ledger.service.ts`, `src/outbox/outbox.service.ts`, `src/pg/toss-error.ts`, `src/common/errors/error-code.ts`, `examples/service-client.ts`, `test/payment/*`, `test/docs/example-clients.int-spec.ts`, `test/support/fake-toss.ts`, `test/common/error-code.spec.ts`, `docs/*`, `CLAUDE.md`, `README.md`
+- **스키마/에러 코드**: 스키마 변경 없음. `CANCEL_IDEMPOTENCY_CONFLICT`, `CANCEL_IN_PROGRESS`, `CANCEL_REJECTED`(모두 409) 추가
+- **문서**: CLAUDE.md 8장 에러 코드 표 갱신
+- **남은 작업 / 주의**: `UNKNOWN` 환불의 대사(토스 조회로 확정)는 아직 없음 — 그 금액은 확정 전까지 환불 가능 금액에서 빠진 채로 남음. admin 수동 환불(`POST /admin/payments/:id/cancel`)은 같은 도메인 로직으로 추가 예정
+
 #### feat(pg): 토스 결제 취소(cancel) 추가
 - **무엇을**: `TossPaymentsClient.cancel` — `POST /v1/payments/{paymentKey}/cancel { cancelReason, cancelAmount, refundReceiveAccount? }` + `Idempotency-Key`. 가상계좌 환불 계좌는 토스 형식(`bank`)으로 바꿔 전달만 함. `ALREADY_CANCELED_PAYMENT`는 `UNKNOWN`으로 분류. `TossPayment.cancels` 타입 추가
 - **왜**: 환불 API의 토스 호출부. 재시도 시 같은 멱등키로 토스 쪽 중복 취소를 막고, "이미 취소됨"은 이전 요청이 성공했을 수 있으므로 실패로 확정하지 않음. 환불 계좌는 개인정보라 저장하지 않음

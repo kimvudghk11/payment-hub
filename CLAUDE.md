@@ -388,6 +388,9 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 | `PAYMENT_REJECTED` | 402 | 결제 대행사가 결제를 승인하지 않았습니다. |
 | `PAYMENT_NOT_CANCELABLE` | 409 | 취소할 수 없는 결제 상태입니다. |
 | `CANCEL_AMOUNT_EXCEEDED` | 400 | 환불 가능 금액을 초과했습니다. |
+| `CANCEL_IDEMPOTENCY_CONFLICT` | 409 | 같은 멱등키로 다른 내용의 환불 요청이 이미 존재합니다. |
+| `CANCEL_IN_PROGRESS` | 409 | 환불이 처리 중입니다. 잠시 후 결과를 확인해주세요. |
+| `CANCEL_REJECTED` | 409 | 결제 대행사가 환불을 처리하지 않았습니다. |
 | `BILLING_KEY_NOT_FOUND` | 404 | 등록된 자동결제 수단을 찾을 수 없습니다. |
 | `PG_CREDENTIAL_NOT_FOUND` | 500 | 결제 대행사 설정이 누락되었습니다. 관리자에게 문의해주세요. |
 | `PG_TIMEOUT` | 504 | 결제 대행사 응답이 지연되고 있습니다. 결과를 확인 중입니다. |

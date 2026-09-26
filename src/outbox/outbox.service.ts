@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from '../order/domain/order.entity';
+import { PaymentCancel } from '../payment/domain/payment-cancel.entity';
 import { Payment } from '../payment/domain/payment.entity';
 import { Service } from '../service/domain/service.entity';
 import { OutboxEventType } from './constants/outbox.constants';
@@ -25,10 +26,18 @@ export class OutboxService {
    * 전달 대상은 서비스에 webhookUrl이 있을 때만 만들고, URL은 지금 값으로 스냅샷한다.
    */
   async publishPaymentEvent(eventType: OutboxEventType, payment: Payment, order: Order): Promise<OutboxEvent> {
-    const event = OutboxEvent.forPayment(eventType, payment, order, new Date());
+    return this.publish(OutboxEvent.forPayment(eventType, payment, order, new Date()));
+  }
+
+  /** 환불 확정 (PAYMENT_CANCELED) */
+  async publishPaymentCancelEvent(payment: Payment, order: Order, cancel: PaymentCancel): Promise<OutboxEvent> {
+    return this.publish(OutboxEvent.forPaymentCancel(payment, order, cancel));
+  }
+
+  private async publish(event: OutboxEvent): Promise<OutboxEvent> {
     await this.events.save(event);
 
-    const { webhookUrl } = await this.services.findOneByOrFail({ serviceId: payment.serviceId });
+    const { webhookUrl } = await this.services.findOneByOrFail({ serviceId: event.serviceId });
     if (webhookUrl) await this.deliveries.insert(WebhookDelivery.pending(event, webhookUrl));
     return event;
   }

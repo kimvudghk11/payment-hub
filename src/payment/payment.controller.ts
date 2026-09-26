@@ -5,9 +5,12 @@ import { CurrentServiceId } from '../common/decorators/current-actor.decorator';
 import { ResponseMessage } from '../common/decorators/response-message.decorator';
 import { IPageable } from '../common/interceptors/response.interceptor';
 import { ConfirmPaymentRequestDto } from './dto/request/confirm-payment.request.dto';
+import { CancelPaymentRequestDto } from './dto/request/cancel-payment.request.dto';
 import { ListPaymentsQueryDto } from './dto/request/list-payments.query.dto';
+import { CancelPaymentResponseDto, PaymentDetailResponseDto } from './dto/response/payment-cancel.response.dto';
 import { PaymentPageResponseDto, PaymentResponseDto } from './dto/response/payment.response.dto';
 import { RefundableResponseDto } from './dto/response/refundable.response.dto';
+import { PaymentCancelService } from './payment-cancel.service';
 import { PaymentService } from './payment.service';
 
 @ApiTags('서비스 API — 결제')
@@ -15,7 +18,10 @@ import { PaymentService } from './payment.service';
 @ServiceApi()
 @Controller('payments')
 export class PaymentController {
-  constructor(private readonly paymentService: PaymentService) {}
+  constructor(
+    private readonly paymentService: PaymentService,
+    private readonly cancelService: PaymentCancelService,
+  ) {}
 
   @Post('confirm')
   @HttpCode(HttpStatus.OK)
@@ -51,6 +57,30 @@ export class PaymentController {
     return { ...page, data: page.data.map(({ payment, order }) => PaymentResponseDto.from(payment, order)) };
   }
 
+  @Post(':paymentId/cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '환불 (전체·부분)',
+    description:
+      '금액 계산(일할 등)은 서비스 책임, hub는 환불 가능 금액 상한만 검증. 같은 idempotencyKey·같은 내용은 기존 결과, 다른 내용은 409. ' +
+      '409 CANCEL_REJECTED = 토스 거절(detail.pgCode·pgMessage), 504 PG_TIMEOUT·502 PG_ERROR = 결과 불명(UNKNOWN) — 그 금액은 확정 전까지 환불 가능 금액에서 빠진다',
+  })
+  @ResponseMessage('환불이 완료되었습니다.')
+  @ApiResponse({ status: 200, type: CancelPaymentResponseDto })
+  async cancel(
+    @CurrentServiceId() serviceId: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Body() dto: CancelPaymentRequestDto,
+  ): Promise<CancelPaymentResponseDto> {
+    const { cancel, payment, order } = await this.cancelService.cancel({
+      serviceId,
+      paymentId,
+      request: dto.toRequest(),
+      refundReceiveAccount: dto.refundReceiveAccount,
+    });
+    return CancelPaymentResponseDto.from(cancel, payment, order);
+  }
+
   @Get(':paymentId/refundable')
   @ApiOperation({
     summary: '환불 가능 금액',
@@ -69,15 +99,15 @@ export class PaymentController {
   @Get(':paymentId')
   @ApiOperation({
     summary: '결제 단건',
-    description: '결제 수단 분류·환불 가능 금액 포함. 다른 서비스의 결제는 404 PAYMENT_NOT_FOUND',
+    description: '결제 수단 분류·환불 가능 금액·취소 이력 포함. 다른 서비스의 결제는 404 PAYMENT_NOT_FOUND',
   })
   @ResponseMessage('결제를 조회했습니다.')
-  @ApiResponse({ status: 200, type: PaymentResponseDto })
+  @ApiResponse({ status: 200, type: PaymentDetailResponseDto })
   async get(
     @CurrentServiceId() serviceId: string,
     @Param('paymentId', ParseUUIDPipe) paymentId: string,
-  ): Promise<PaymentResponseDto> {
+  ): Promise<PaymentDetailResponseDto> {
     const { payment, order } = await this.paymentService.get(serviceId, paymentId);
-    return PaymentResponseDto.from(payment, order);
+    return PaymentDetailResponseDto.fromDetail(payment, order);
   }
 }

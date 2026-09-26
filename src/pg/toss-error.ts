@@ -4,5 +4,7 @@ import { ErrorCode, ErrorCodeDefinition } from '../common/errors/error-code';
 const HUB_CONFIG_ERROR_CODES = new Set(['UNAUTHORIZED_KEY', 'INVALID_API_KEY']);
 
 /** 토스가 거절한 코드 → hub 에러 코드. 토스 원본 코드·메시지는 detail.pgCode·pgMessage로 따로 전달한다 */
-export const hubErrorForTossRejection = (pgCode: string): ErrorCodeDefinition =>
-  HUB_CONFIG_ERROR_CODES.has(pgCode) ? ErrorCode.PG_ERROR : ErrorCode.PAYMENT_REJECTED;
+export const hubErrorForTossRejection = (
+  pgCode: string,
+  rejected: ErrorCodeDefinition = ErrorCode.PAYMENT_REJECTED,
+): ErrorCodeDefinition => (HUB_CONFIG_ERROR_CODES.has(pgCode) ? ErrorCode.PG_ERROR : rejected);

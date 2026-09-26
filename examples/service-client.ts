@@ -159,11 +159,43 @@ export interface Refundable {
   }[];
 }
 
+export interface PaymentCancel {
+  paymentCancelId: string;
+  status: 'REQUESTED' | 'UNKNOWN' | 'DONE' | 'FAILED';
+  amount: number;
+  reasonCode: string;
+  reasonDetail: string | null;
+  requestedBy: 'SERVICE' | 'ADMIN' | 'SYSTEM';
+  items: { orderItemId: string; quantity: number; amount: number }[];
+  failure: { code: string; message: string } | null;
+  canceledAt: string | null;
+  createdAt: string;
+}
+
+/** 결제 단건: 결제 + 취소 이력 */
+export interface PaymentDetail extends Payment {
+  cancels: PaymentCancel[];
+}
+
+export interface CancelPaymentInput {
+  /** 환불 금액. 계산(일할 등)은 서비스가 하고, 상한은 getRefundable().refundableAmount */
+  amount: number;
+  reasonCode: string;
+  /** 토스 취소 사유로 전달 */
+  reasonDetail?: string;
+  /** 재시도할 때 반드시 같은 값 (예: 서비스 환불 요청 ID) */
+  idempotencyKey: string;
+  /** 항목별 취소 기록 (선택). 주면 금액 합계 = amount */
+  items?: { orderItemId: string; quantity: number; amount: number }[];
+  /** 가상계좌 결제만 필수. hub는 저장하지 않는다 */
+  refundReceiveAccount?: { bankCode: string; accountNumber: string; holderName: string };
+}
+
 /**
- * 결제 승인 요청 타임아웃. hub는 토스 응답을 최대 30초(TOSS_API_TIMEOUT_MS) 기다리므로 그보다 길게 둔다.
- * 그래도 타임아웃이 나면 재승인하지 말고 listPayments({ externalOrderId })로 결과를 확인한다.
+ * 결제 승인·환불 요청 타임아웃. hub는 토스 응답을 최대 30초(TOSS_API_TIMEOUT_MS) 기다리므로 그보다 길게 둔다.
+ * 그래도 타임아웃이 나면 다시 승인하지 말고 조회로 결과를 확인한다 (환불은 같은 idempotencyKey로 재시도하면 안전).
  */
-const CONFIRM_TIMEOUT_MS = 60_000;
+const PG_CALL_TIMEOUT_MS = 60_000;
 
 export class PaymentHubServiceClient {
   constructor(private readonly options: { baseUrl: string; apiKey: string }) {}
@@ -204,11 +236,12 @@ export class PaymentHubServiceClient {
    *   PAYMENT_IN_PROGRESS(409)        이미 처리 중 — 위와 같음
    */
   async confirmPayment(input: { orderId: string; paymentKey: string; amount: number }): Promise<Payment> {
-    return (await this.call<Payment>('POST', '/payments/confirm', input, undefined, CONFIRM_TIMEOUT_MS)).data;
+    return (await this.call<Payment>('POST', '/payments/confirm', input, undefined, PG_CALL_TIMEOUT_MS)).data;
   }
 
-  async getPayment(paymentId: string): Promise<Payment> {
-    return (await this.call<Payment>('GET', `/payments/${paymentId}`)).data;
+  /** 결제 + 취소 이력 */
+  async getPayment(paymentId: string): Promise<PaymentDetail> {
+    return (await this.call<PaymentDetail>('GET', `/payments/${paymentId}`)).data;
   }
 
   /** 사용자별 결제 이력 등. 실패한 시도도 포함된다 */
@@ -220,6 +253,29 @@ export class PaymentHubServiceClient {
   /** 환불 전에 상한(refundableAmount)과 항목별 취소 가능 수량을 확인한다 */
   async getRefundable(paymentId: string): Promise<Refundable> {
     return (await this.call<Refundable>('GET', `/payments/${paymentId}/refundable`)).data;
+  }
+
+  /**
+   * 환불 (전체·부분). 같은 idempotencyKey로 다시 호출하면 기록된 결과를 준다 — 네트워크 오류·타임아웃이면 그대로 재시도.
+   * 실패 분기 (PaymentHubError.code):
+   *   CANCEL_AMOUNT_EXCEEDED(400)     detail.refundableAmount 이하로 다시 계산
+   *   CANCEL_REJECTED(409)            토스 거절 — detail.pgMessage 확인 후 새 idempotencyKey로 다시 요청 가능
+   *   PG_TIMEOUT(504) / PG_ERROR(502) 결과 불명 — 같은 idempotencyKey로 재시도하거나 getPayment로 확인
+   *   CANCEL_IN_PROGRESS(409)         처리 중 — 잠시 후 getPayment로 확인
+   */
+  async cancelPayment(
+    paymentId: string,
+    input: CancelPaymentInput,
+  ): Promise<{ cancel: PaymentCancel; payment: Payment }> {
+    return (
+      await this.call<{ cancel: PaymentCancel; payment: Payment }>(
+        'POST',
+        `/payments/${paymentId}/cancel`,
+        input,
+        undefined,
+        PG_CALL_TIMEOUT_MS,
+      )
+    ).data;
   }
 
   private call<T>(

@@ -91,6 +91,32 @@ export class PaymentCancel extends BaseEntity {
     return cancel;
   }
 
+  /**
+   * 같은 (서비스, idempotencyKey) 재요청이 같은 환불인지. 같으면 기존 결과, 다르면 409.
+   * 사유 상세(토스 cancelReason 문구)는 비교하지 않는다. items가 로드되어 있어야 한다.
+   */
+  matches(
+    paymentId: string,
+    request: {
+      amount: number;
+      reasonCode: string;
+      items?: { orderItemId: string; quantity: number; amount: number }[];
+    },
+  ): boolean {
+    const key = (items: { orderItemId: string; quantity: number; amount: number }[]) =>
+      JSON.stringify(
+        [...items]
+          .map(({ orderItemId, quantity, amount }) => [orderItemId, quantity, amount])
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      );
+    return (
+      this.paymentId === paymentId &&
+      this.amount === request.amount &&
+      this.reasonCode === request.reasonCode &&
+      key(this.items) === key(request.items ?? [])
+    );
+  }
+
   /** 결과를 아직 모르는 취소 — 환불 가능 금액에서 미리 빼 둔다 */
   get isPending(): boolean {
     return this.status === PaymentCancelStatus.REQUESTED || this.status === PaymentCancelStatus.UNKNOWN;

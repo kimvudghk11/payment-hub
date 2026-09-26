@@ -81,7 +81,10 @@ export class PaymentService {
   }
 
   async get(serviceId: string, paymentId: string): Promise<PaymentView> {
-    const payment = await this.payments.findOneBy({ paymentId, serviceId });
+    const payment = await this.payments.findOne({
+      where: { paymentId, serviceId },
+      relations: { cancels: { items: true } },
+    });
     if (!payment) throw new BusinessException(ErrorCode.PAYMENT_NOT_FOUND);
     return { payment, order: await this.orders.findOneByOrFail({ orderId: payment.orderId, serviceId }) };
   }
