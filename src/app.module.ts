@@ -12,6 +12,7 @@ import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './common/guards/auth.module';
 import { OrderModule } from './order/order.module';
 import { PaymentModule } from './payment/payment.module';
+import { PgWebhookModule } from './pg-webhook/pg-webhook.module';
 import { ServiceModule } from './service/service.module';
 
 @Module({
@@ -32,6 +33,7 @@ import { ServiceModule } from './service/service.module';
     ServiceModule,
     OrderModule,
     PaymentModule,
+    PgWebhookModule,
     AdminServiceModule,
     AdminPaymentModule,
     AdminOpsModule,

@@ -592,6 +592,29 @@
         ]
       }
     },
+    "/api/v1/pg-webhooks/toss": {
+      "post": {
+        "description": "가상계좌 입금(DEPOSIT_CALLBACK)·결제 상태 변경(PAYMENT_STATUS_CHANGED). 페이로드는 신호로만 쓰고 토스 조회로 재확인해 반영. 항상 200",
+        "operationId": "PgWebhookController_toss",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PgWebhookResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "토스 웹훅 수신",
+        "tags": [
+          "토스 웹훅 수신"
+        ]
+      }
+    },
     "/api/v1/admin/services": {
       "post": {
         "description": "웹훅 서명 키를 함께 발급하며 평문은 이 응답에서 1회만 반환",
@@ -3340,6 +3363,24 @@
           "failure",
           "createdAt",
           "cancels"
+        ]
+      },
+      "PgWebhookResponseDto": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "description": "처리 결과",
+            "enum": [
+              "PROCESSED",
+              "IGNORED",
+              "FAILED",
+              "DUPLICATE"
+            ]
+          }
+        },
+        "required": [
+          "result"
         ]
       },
       "CreateServiceRequestDto": {

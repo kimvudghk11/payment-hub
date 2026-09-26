@@ -20,8 +20,19 @@ import { PaymentOutcomeService } from './payment-outcome.service';
  */
 export const RECONCILE_MIN_AGE_MS = 2 * 60_000;
 export const RECONCILE_BATCH_SIZE = 20;
+/** 입금 대기 가상계좌는 토스 웹훅이 1차 경로 — 대사는 웹훅을 놓친 경우의 안전망이라 드물게 본다 */
+export const DEPOSIT_RECHECK_AGE_MS = 10 * 60_000;
 
 const UNRESOLVED_STATUSES: PaymentStatus[] = [PaymentStatus.IN_PROGRESS, PaymentStatus.UNKNOWN];
+/** 토스 상태와 맞춰 볼 수 있는 결제 (아직 결과가 정해지지 않았거나 입금 대기) */
+const SYNCABLE_STATUSES: PaymentStatus[] = [...UNRESOLVED_STATUSES, PaymentStatus.WAITING_FOR_DEPOSIT];
+
+/** resolved: 결제 상태를 새로 정함, verified: 토스가 이 결제의 현재 상태를 응답함 (조회 실패·불일치면 false) */
+export interface SyncResult {
+  resolved: boolean;
+  verified: boolean;
+  payment: Payment;
+}
 
 export interface ReconcileResult {
   checked: number;
@@ -29,7 +40,8 @@ export interface ReconcileResult {
 }
 
 /**
- * 대사: IN_PROGRESS(선기록 후 멈춤)·UNKNOWN(결과 불명) 결제를 토스 조회로 확정한다.
+ * 대사: IN_PROGRESS(선기록 후 멈춤)·UNKNOWN(결과 불명)·WAITING_FOR_DEPOSIT(입금 대기) 결제를 토스 조회로 확정한다.
+ * 토스 웹훅 수신도 같은 경로(reconcileOne)를 쓴다 — 웹훅 페이로드가 아니라 토스 조회 결과만 반영한다.
  * 토스 조회는 트랜잭션 밖, 반영은 결제 행 락 후 같은 규칙(PaymentOutcomeService)으로. 여러 인스턴스가 같은 결제를
  * 동시에 조회해도 반영은 락 + 상태 확인으로 한 번만 된다.
  * 확정하지 못한 결제는 updated_at만 갱신해 다음 대사 순서의 뒤로 보낸다 (오래 안 풀리는 건이 다른 건을 막지 않게).
@@ -50,14 +62,19 @@ export class PaymentReconciler {
   ) {}
 
   async reconcileDue(now: Date = new Date(), limit: number = RECONCILE_BATCH_SIZE): Promise<ReconcileResult> {
-    const candidates = await this.payments.find({
-      where: {
-        status: In(UNRESOLVED_STATUSES),
-        updatedAt: LessThanOrEqual(new Date(now.getTime() - RECONCILE_MIN_AGE_MS)),
-      },
-      order: { updatedAt: 'ASC' },
-      take: limit,
-    });
+    const olderThan = (ageMs: number) => LessThanOrEqual(new Date(now.getTime() - ageMs));
+    const candidates = [
+      ...(await this.payments.find({
+        where: { status: In(UNRESOLVED_STATUSES), updatedAt: olderThan(RECONCILE_MIN_AGE_MS) },
+        order: { updatedAt: 'ASC' },
+        take: limit,
+      })),
+      ...(await this.payments.find({
+        where: { status: PaymentStatus.WAITING_FOR_DEPOSIT, updatedAt: olderThan(DEPOSIT_RECHECK_AGE_MS) },
+        order: { updatedAt: 'ASC' },
+        take: limit,
+      })),
+    ];
 
     let resolved = 0;
     for (const candidate of candidates) {
@@ -86,15 +103,15 @@ export class PaymentReconciler {
   }
 
   /**
-   * 결제 한 건을 지금 대사한다 (관리자 수동 대사). 경과 시간 조건 없이 토스를 조회한다.
+   * 결제 한 건을 지금 대사한다 (관리자 수동 대사, 토스 웹훅 수신). 경과 시간 조건 없이 토스를 조회한다.
    * 이미 확정된 결제는 토스를 부르지 않는다. onResolved는 확정한 트랜잭션 안에서 실행된다 (감사 로그용).
    */
   async reconcileOne(
     paymentId: string,
     onResolved?: (before: { status: PaymentStatus }, payment: Payment) => Promise<void>,
-  ): Promise<{ resolved: boolean; payment: Payment }> {
+  ): Promise<SyncResult> {
     const payment = await this.payments.findOneByOrFail({ paymentId });
-    if (!UNRESOLVED_STATUSES.includes(payment.status)) return { resolved: false, payment };
+    if (!SYNCABLE_STATUSES.includes(payment.status)) return { resolved: false, verified: false, payment };
     return this.apply(paymentId, await this.lookup(payment), onResolved);
   }
 
@@ -112,34 +129,36 @@ export class PaymentReconciler {
     }
   }
 
-  /** @returns resolved: 결제를 확정했으면 true */
+  /** @returns resolved: 결제 상태를 새로 정했으면 true (입금 대기 → 입금 대기처럼 그대로면 false) */
   @Transactional()
   private async apply(
     paymentId: string,
     result: TossResult | null,
     onResolved?: (before: { status: PaymentStatus }, payment: Payment) => Promise<void>,
-  ): Promise<{ resolved: boolean; payment: Payment }> {
+  ): Promise<SyncResult> {
     const payment = await this.payments.findOneOrFail({ where: { paymentId }, lock: { mode: 'pessimistic_write' } });
-    if (!UNRESOLVED_STATUSES.includes(payment.status)) return { resolved: false, payment }; // 그 사이 승인 응답·다른 대사가 확정함
+    if (!SYNCABLE_STATUSES.includes(payment.status)) return { resolved: false, verified: false, payment }; // 그 사이 승인 응답·다른 대사가 확정함
     const before = { status: payment.status };
 
-    if (result?.outcome === 'APPROVED' && this.belongsTo(result.payment, payment)) {
+    const verified = result?.outcome === 'APPROVED' && this.belongsTo(result.payment, payment);
+    if (verified) {
       const order = await this.orders.findOneOrFail({
         where: { orderId: payment.orderId, serviceId: payment.serviceId },
         lock: { mode: 'pessimistic_write' },
       });
       payment.applyTossPayment(result.payment);
       await this.payments.save(payment);
-      await this.outcome.record(payment, order);
-      if (payment.status !== PaymentStatus.UNKNOWN) {
+      // 상태가 실제로 바뀌었을 때만 후속 기록 (입금 대기 → 입금 대기면 이벤트를 다시 내지 않는다)
+      if (payment.status !== before.status && payment.status !== PaymentStatus.UNKNOWN) {
+        await this.outcome.record(payment, order);
         await onResolved?.(before, payment);
-        return { resolved: true, payment };
+        return { resolved: true, verified, payment };
       }
     }
 
     // 확정 못 함: 대사 순서의 뒤로
     await this.payments.update({ paymentId }, { updatedAt: new Date() });
-    return { resolved: false, payment };
+    return { resolved: false, verified, payment };
   }
 
   /** 토스 응답이 정말 이 결제의 것인지. 다르면 믿지 않고 UNKNOWN으로 남겨 사람이 본다 */

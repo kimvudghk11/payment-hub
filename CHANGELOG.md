@@ -6,6 +6,20 @@
 
 ### 2026-09-27
 
+#### feat(pg-webhook): 토스 → hub 웹훅 수신 및 가상계좌 입금 반영 추가
+- **무엇을**:
+  - `POST /api/v1/pg-webhooks/toss` (@Public): `PAYMENT_STATUS_CHANGED`(data.paymentKey)·가상계좌 입금 콜백(orderId) 수신 → `tb_pg_webhook_event` 기록(중복 키 `유형:대상:상태:토스 시각`, 200자 초과 시 해시) → 대상 결제를 **토스 조회로 재확인**해 반영 → `PROCESSED`·`IGNORED`·`FAILED`. 항상 200
+  - `PaymentReconciler`가 입금 대기(`WAITING_FOR_DEPOSIT`) 결제도 다룸: `reconcileOne`(웹훅·수동 대사)과 배치의 안전망(10분 이상 지난 입금 대기). 상태가 실제로 바뀌었을 때만 후속 기록(주문·원장·이벤트) — 입금 대기 → 입금 대기면 이벤트를 다시 내지 않음. 결과에 `verified`(토스가 이 결제 상태를 응답함) 추가
+  - `PgWebhookEvent.receive/markProcessed/markIgnored/markFailed`
+  - 문서: api.md 4-1장, 서비스 가이드 가상계좌 흐름, admin 가이드 "토스 웹훅 URL 등록", README, OpenAPI
+- **왜**:
+  - 가상계좌는 입금이 비동기라 토스가 알려줘야 완결됨 (지금까지 입금 대기에서 멈춰 있었음)
+  - 토스 웹훅은 서명이 없어 경로를 공개할 수밖에 없음 → 페이로드를 신호로만 쓰고 토스 조회 결과만 반영해 위조 웹훅으로 상태를 바꿀 수 없게 함 (CLAUDE.md 5장). 테스트: 웹훅이 DONE이라 해도 토스 조회가 입금 대기면 그대로
+  - 실패해도 200: 500을 주면 토스가 재전송하지만 중복 키에 막혀 다시 처리되지 않음 → 대사 배치가 이어받는 쪽이 일관됨
+  - 웹훅 등록 누락·유실에 대비해 입금 대기 결제도 대사 (드물게, 10분)
+- **변경 파일**: `src/pg-webhook/*`, `src/payment/payment-reconciler.ts`, `src/app.module.ts`, `test/pg-webhook/*`, `docs/*`, `README.md`
+- **남은 작업 / 주의**: 토스 실제 웹훅 본문 형식은 공식 문서 기준 — 실제 토스로 확인 필요. 수신 내역 admin 조회(`/admin/ops/pg-webhooks`)는 다음 커밋
+
 #### feat(payment): 가상계좌 입금 대기 → 입금 완료·만료 전이 추가
 - **무엇을**: `Payment.applyTossPayment`가 `WAITING_FOR_DEPOSIT`에서도 동작 — 토스 `DONE` → `DONE`(승인 시각 = 입금 시각), 입금 전 `EXPIRED`·`CANCELED` → `EXPIRED`, 그 외(여전히 입금 대기·알 수 없는 상태)는 입금 대기 유지. 실패·불명 처리(`markFailed`·`markUnknown`)는 여전히 입금 대기에 쓸 수 없음
 - **왜**: 토스 웹훅·대사가 입금 결과를 반영할 도메인 규칙. 입금 대기에서 모르는 상태를 받았다고 `UNKNOWN`으로 떨어뜨리면 이미 발급된 가상계좌가 "결과 불명"으로 보임

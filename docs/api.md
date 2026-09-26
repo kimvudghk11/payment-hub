@@ -532,7 +532,7 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 }
 ```
 
-가상계좌는 `status: "WAITING_FOR_DEPOSIT"`, `approvedAt: null`과 함께 입금 안내 정보를 준다. 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다 (토스 웹훅 수신은 🚧).
+가상계좌는 `status: "WAITING_FOR_DEPOSIT"`, `approvedAt: null`과 함께 입금 안내 정보를 준다. 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다 (토스 입금 웹훅 수신 ✅ — 4-1장). 입금 기한까지 입금이 없으면 `EXPIRED` + `PAYMENT_FAILED`.
 
 ```json
 "method": {
@@ -773,6 +773,24 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 3. **2xx를 빠르게 응답**하고 무거운 후속 작업(프로비저닝 등)은 비동기로 처리한다
 4. 2xx가 아니면(리다이렉트 포함, 응답 제한 10초) hub가 재시도한다 — 1분, 2분, 4분 … 최대 1시간 간격으로 **10번**까지(약 4시간). 넘으면 `DEAD` → admin이 재전송 (재전송 API는 🚧). 재시도는 같은 `eventId`로 온다
 5. **후속 처리가 실패해도 hub는 자동 환불하지 않는다.** 서비스가 판단해 `POST /payments/:id/cancel`을 호출한다
+
+---
+
+## 4-1. 토스 → hub 웹훅 (`POST /api/v1/pg-webhooks/toss`) ✅
+
+토스 개발자센터의 웹훅 URL에 이 주소를 등록한다 (hub 운영자 작업). 서비스는 신경 쓰지 않아도 된다.
+
+| 토스 이벤트 | 식별 | hub 동작 |
+|---|---|---|
+| `PAYMENT_STATUS_CHANGED` | `data.paymentKey` | 토스 조회로 재확인 후 반영 |
+| 가상계좌 입금 콜백 (`DEPOSIT_CALLBACK`, `eventType` 없이 `secret`·`orderId`) | `orderId` | 같음 |
+| 그 외 | | 대상 결제가 없거나 이미 확정됐으면 `IGNORED` |
+
+- **페이로드를 신뢰하지 않는다.** 웹훅은 "바뀌었다"는 신호로만 쓰고, 토스 결제 조회 결과만 반영한다 (대사와 같은 경로). 그래서 인증 없는 공개 경로여도 위조 웹훅으로 상태를 바꿀 수 없다
+- 입금 대기 가상계좌: 토스 `DONE` → `DONE`(주문 PAID·원장·`PAYMENT_CONFIRMED`), 입금 전 `EXPIRED`·`CANCELED` → `EXPIRED`(`PAYMENT_FAILED`)
+- 같은 웹훅 재수신은 `(유형, paymentKey|orderId, 상태, 토스 발생 시각)` 키로 무시한다
+- **항상 200.** 재확인에 실패하면 `FAILED`로 기록하고, 결제는 대사 배치가 이어받는다 (입금 대기 결제는 10분마다 토스 조회 — 웹훅을 놓쳐도 확정된다)
+- 수신 내역은 `tb_pg_webhook_event`(`RECEIVED` → `PROCESSED`·`IGNORED`·`FAILED`)
 
 ---
 
