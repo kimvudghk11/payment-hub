@@ -290,6 +290,35 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(Array.isArray(webhooks.data)).toBe(true);
   });
 
+  it('admin: 서비스의 월 매출 리포트', async () => {
+    const { service, apiKey } = await onboard();
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    toss.respond((request) => ({
+      status: 200,
+      body: {
+        paymentKey: request.body.paymentKey,
+        orderId: request.body.orderId,
+        status: 'DONE',
+        method: '카드',
+        totalAmount: request.body.amount,
+        currency: 'KRW',
+        approvedAt: '2026-10-15T12:00:00+09:00',
+      },
+    }));
+    const { order } = await client.createOrder(orderInput('ex-report-1'));
+    await client.confirmPayment({ orderId: order.orderId, paymentKey: 'tgen_ex_report_1', amount: 10000 });
+
+    const report = await admin.getRevenueReport(actor, {
+      serviceId: service.serviceId,
+      from: '2026-10-01',
+      to: '2026-10-31',
+      groupBy: 'month',
+    });
+
+    expect(report.rows).toEqual([expect.objectContaining({ period: '2026-10', revenue: 10000, net: 10000 })]);
+    expect(report.totals).toEqual([{ currency: 'KRW', revenue: 10000, refund: 0, net: 10000 }]);
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });

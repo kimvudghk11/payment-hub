@@ -2433,6 +2433,87 @@
           "관리자 API — 운영"
         ]
       }
+    },
+    "/api/v1/admin/reports/revenue": {
+      "get": {
+        "description": "원장 기준, KST 날짜 경계. 서비스별 일·월 단위 매출·환불·순매출·건수와 통화별 합계. 기간 최대 366일",
+        "operationId": "AdminReportController_revenue",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": true,
+            "in": "query",
+            "description": "시작일 (KST, 포함)",
+            "schema": {
+              "example": "2026-10-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": true,
+            "in": "query",
+            "description": "종료일 (KST, 포함). 기간은 최대 366일",
+            "schema": {
+              "example": "2026-10-31",
+              "type": "string"
+            }
+          },
+          {
+            "name": "groupBy",
+            "required": false,
+            "in": "query",
+            "description": "집계 단위",
+            "schema": {
+              "default": "day",
+              "type": "string",
+              "enum": [
+                "day",
+                "month"
+              ]
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 ID. 없으면 서비스별로 나눠 준다",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevenueReportResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "매출·환불 집계",
+        "tags": [
+          "관리자 API — 리포트"
+        ]
+      }
     }
   },
   "info": {
@@ -5229,6 +5310,103 @@
         "required": [
           "resolved",
           "payment"
+        ]
+      },
+      "RevenueRowDto": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string",
+            "description": "KST 기준 일(YYYY-MM-DD) 또는 월(YYYY-MM)",
+            "example": "2026-10-01"
+          },
+          "currency": {
+            "type": "string",
+            "example": "KRW"
+          },
+          "revenue": {
+            "type": "number",
+            "description": "매출 (결제 승인, 원장 REVENUE 대변)",
+            "example": 50000
+          },
+          "refund": {
+            "type": "number",
+            "description": "환불 (원장 REFUND 차변)",
+            "example": 10000
+          },
+          "net": {
+            "type": "number",
+            "description": "순매출 = 매출 − 환불",
+            "example": 40000
+          },
+          "paymentCount": {
+            "type": "number",
+            "description": "결제 승인 건수"
+          },
+          "cancelCount": {
+            "type": "number",
+            "description": "환불 건수"
+          }
+        },
+        "required": [
+          "serviceId",
+          "period",
+          "currency",
+          "revenue",
+          "refund",
+          "net",
+          "paymentCount",
+          "cancelCount"
+        ]
+      },
+      "RevenueTotalDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "example": "KRW"
+          },
+          "revenue": {
+            "type": "number"
+          },
+          "refund": {
+            "type": "number"
+          },
+          "net": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "currency",
+          "revenue",
+          "refund",
+          "net"
+        ]
+      },
+      "RevenueReportResponseDto": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "description": "기간 → 서비스 순",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueRowDto"
+            }
+          },
+          "totals": {
+            "description": "통화별 합계",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RevenueTotalDto"
+            }
+          }
+        },
+        "required": [
+          "rows",
+          "totals"
         ]
       }
     }

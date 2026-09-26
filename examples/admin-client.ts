@@ -107,6 +107,21 @@ export interface AdminPaymentDetail extends AdminPayment {
   providerResponse: Record<string, unknown> | null;
 }
 
+export interface RevenueReport {
+  rows: {
+    serviceId: string;
+    /** KST 일(YYYY-MM-DD) 또는 월(YYYY-MM) */
+    period: string;
+    currency: string;
+    revenue: number;
+    refund: number;
+    net: number;
+    paymentCount: number;
+    cancelCount: number;
+  }[];
+  totals: { currency: string; revenue: number; refund: number; net: number }[];
+}
+
 export interface AuditLog {
   adminAuditLogId: string;
   actorId: string;
@@ -275,6 +290,16 @@ export class PaymentHubAdminClient {
       `/admin/payments/${paymentId}/cancel`,
       input,
     );
+  }
+
+  // ---------- 리포트 ----------
+
+  /** 매출·환불 집계 (원장 기준, KST 날짜 경계, 기간 최대 366일) */
+  async getRevenueReport(
+    actor: AdminActor,
+    query: { from: string; to: string; groupBy?: 'day' | 'month'; serviceId?: string },
+  ) {
+    return this.call<RevenueReport>(actor, 'GET', '/admin/reports/revenue', undefined, query);
   }
 
   // ---------- 감사 로그 ----------

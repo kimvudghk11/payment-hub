@@ -6,6 +6,7 @@ import { DataSource } from 'typeorm';
 import { addTransactionalDataSource } from 'typeorm-transactional';
 import { AdminOpsModule } from './admin/ops/admin-ops.module';
 import { AdminPaymentModule } from './admin/payment/admin-payment.module';
+import { AdminReportModule } from './admin/report/admin-report.module';
 import { AdminServiceModule } from './admin/service/admin-service.module';
 import { databaseConfig } from './common/config/database.config';
 import { CryptoModule } from './common/crypto/crypto.module';
@@ -39,6 +40,7 @@ import { ServiceModule } from './service/service.module';
     AdminServiceModule,
     AdminPaymentModule,
     AdminOpsModule,
+    AdminReportModule,
   ],
 })
 export class AppModule {}

@@ -6,6 +6,15 @@
 
 ### 2026-09-27
 
+#### feat(admin): 매출·환불 리포트 API(GET /admin/reports/revenue) 추가
+- **무엇을**: 원장(`tb_ledger_transaction`·`tb_ledger_entry`·`tb_ledger_account`)에서 서비스·기간(KST 일/월)·통화별 매출(REVENUE 대변)·환불(REFUND 차변)·순매출·결제/환불 건수 집계 + 통화별 합계. `from`·`to`(KST, 포함, 최대 366일), `groupBy=day|month`, `serviceId`. 금액 합계가 안전 정수 범위를 넘으면 실패. 예제 `getRevenueReport`, api.md 2.5, admin 가이드, README, OpenAPI
+- **왜**:
+  - 별도 집계 테이블 없이 원장이 매출의 단일 원천 (CLAUDE.md 4장) — 결제·환불 테이블을 합산하면 원장과 어긋날 수 있음
+  - 날짜 경계는 KST: UTC로 묶으면 한국 시간 자정~오전 9시 결제가 전날 매출로 잡힘. 같은 UTC 날짜·다른 KST 날짜의 두 결제로 테스트하고, UTC로 바꾸면 실패하는 것을 확인
+  - 매출·환불은 각각 사건 시각(토스 승인·취소 시각)의 날짜에 잡힘 — 10월 결제를 11월에 환불하면 11월 환불
+- **변경 파일**: `src/admin/report/*`, `src/app.module.ts`, `examples/admin-client.ts`, `test/admin/admin-revenue-report.int-spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`, `README.md`
+- **남은 작업 / 주의**: 결제 수단(methodType)별 집계, PG 수수료·정산(PG_SETTLED) 기장은 없음 (토스 정산 데이터 연동 필요)
+
 #### feat(admin): 감사 로그 조회·토스 웹훅 수신 내역 조회 API 추가
 - **무엇을**: `GET /admin/audit-logs`(작업자·작업 종류·대상·서비스·기간, 최신순 cursor), `GET /admin/ops/pg-webhooks`(처리 상태·이벤트 유형, 최신순, 토스 원본 본문). cursor 페이징 헬퍼에 `dateProperty`(기본 createdAt) 추가 — `received_at`을 쓰는 수신 내역용. 예제 `listAuditLogs`·`listPgWebhooks`, api.md 2.5, admin 가이드, OpenAPI
 - **왜**: 감사 로그는 쓰기만 하고 볼 방법이 없었음 (admin 화면의 "누가 이 서비스를 정지했나"). 토스 웹훅 실패가 쌓이는지 운영자가 볼 수 있어야 함 (웹훅 URL 등록 누락 등)

@@ -285,7 +285,7 @@ src
 - [x] 웹훅 발송 워커 (SKIP LOCKED 획득·임대, 서명, 지수 백오프 재시도, DEAD)
 - [x] 대사 배치 (UNKNOWN·멈춘 IN_PROGRESS를 토스 조회로 확정, 응답-기록 불일치는 확정 안 함)
 - [x] 관리자 결제 조회·상세, 운영 큐(실패 웹훅 재전송·수동 대사), 수동 환불 (감사 로그 같은 트랜잭션)
-- [ ] 매출 리포트, 감사 로그 조회
+- [x] 감사 로그 조회, 토스 웹훅 수신 내역, 매출·환불 리포트 (원장 기준, KST 경계)
 
 - API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)
 - 변경 이력과 각 결정의 이유: [CHANGELOG.md](./CHANGELOG.md)
