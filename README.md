@@ -279,7 +279,7 @@ src
 - [x] 결제 조회: 단건, 사용자별 이력(상태·수단 필터), 환불 가능 금액
 - [ ] 취소/부분 취소, 빌링 자동결제, 가상계좌
 - [x] 웹훅 발송 워커 (SKIP LOCKED 획득·임대, 서명, 지수 백오프 재시도, DEAD)
-- [ ] 대사 배치
+- [x] 대사 배치 (UNKNOWN·멈춘 IN_PROGRESS를 토스 조회로 확정, 응답-기록 불일치는 확정 안 함)
 - [ ] 관리자 조회·운영 API, 매출 리포트
 
 - API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)

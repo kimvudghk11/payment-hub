@@ -33,6 +33,7 @@ export class PaymentOutcomeService {
         await this.outbox.publishPaymentEvent(OutboxEventType.PAYMENT_WAITING_FOR_DEPOSIT, payment, order);
         return;
       case PaymentStatus.FAILED:
+      case PaymentStatus.EXPIRED:
         await this.outbox.publishPaymentEvent(OutboxEventType.PAYMENT_FAILED, payment, order);
         return;
       default:

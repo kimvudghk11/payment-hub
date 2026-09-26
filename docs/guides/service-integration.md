@@ -274,7 +274,11 @@ try {
 
 1. `GET /payments?externalOrderId=<서비스 주문번호>`로 해당 주문의 결제를 조회한다
 2. `DONE`이면 완료, `FAILED`면 실패 처리, `IN_PROGRESS`·`UNKNOWN`이면 사용자에게 "결제 확인 중"을 보여주고 잠시 뒤 다시 조회한다
-3. `UNKNOWN`은 대사(토스 조회로 확정)가 결론을 낸다 (자동 대사 배치·admin 수동 대사 API는 🚧 — 그 전까지는 hub 운영자가 토스 개발자센터·상점관리자에서 확인한다)
+3. `UNKNOWN`은 hub의 **대사 배치**가 1분마다 토스 조회로 확정한다 (결과 불명이 된 지 2분 이상 지난 건부터). 확정되면:
+   - 승인됐으면 `DONE` + 웹훅 `PAYMENT_CONFIRMED`
+   - 실패·만료면 `FAILED`/`EXPIRED` + 웹훅 `PAYMENT_FAILED` — 사용자는 같은 주문으로 다시 결제할 수 있다
+   - 같은 `paymentKey`로 다시 승인하면 확정된 결과를 받는다 (`200 DONE` 또는 `402 PAYMENT_REJECTED`)
+4. 토스도 아직 모르는 결제(인증만 되고 승인 전)는 토스에서 만료될 때까지 `UNKNOWN`으로 남는다. 오래 풀리지 않으면 hub 운영자에게 문의한다 (admin 수동 대사 API는 🚧)
 
 요청·응답·에러 전체는 [api.md 3.3](../api.md#33-결제) 참고.
 

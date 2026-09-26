@@ -6,6 +6,23 @@
 
 ### 2026-09-27
 
+#### feat(payment): 대사 배치 추가 — 결과 불명·멈춘 결제를 토스 조회로 확정
+- **무엇을**:
+  - `PaymentReconciler.reconcileDue()`: `IN_PROGRESS`·`UNKNOWN` 중 2분 이상 지난 결제(오래된 순 20건)를 토스 `getPayment`로 조회(트랜잭션 밖) → 결제 행 락 + 상태 재확인 후 반영. 토스 `DONE` → 주문 PAID·원장·`PAYMENT_CONFIRMED`, `ABORTED` → `FAILED`, `EXPIRED` → `EXPIRED`(둘 다 `PAYMENT_FAILED`)
+  - 확정 못 한 건(토스도 승인 전, 404, 조회 타임아웃·5xx, 활성 토스 키 없음)은 `updated_at`만 갱신해 다음 대사 순서의 뒤로
+  - 토스 응답이 결제 기록(paymentKey·orderId·금액)과 다르면 믿지 않고 `UNKNOWN` 유지 + 에러 로그
+  - `EXPIRED` 결제도 `PAYMENT_FAILED` 이벤트, 같은 paymentKey 재승인 시 `402 PAYMENT_REJECTED`(`pgCode: EXPIRED`) — 이전에는 200으로 보일 수 있었음
+  - `PaymentReconcileScheduler`(기본 1분, `RECONCILE_ENABLED`·`RECONCILE_INTERVAL_MS`). 주기 배치 공통부를 `common/scheduling/interval-job.ts`로 추출해 웹훅 발송 스케줄러와 공유
+  - 문서: api.md 3.3(대사 규칙), 서비스 가이드 "결과를 모를 때", `.env.example`, CLAUDE.md 서비스 레이어 규칙
+- **왜**:
+  - 외부 호출 전 기록 원칙의 마무리. 타임아웃으로 `UNKNOWN`이 된 결제가 영원히 남으면 주문이 막히고(살아있는 결제 1건 제약) 실제로 승인된 돈이 매출에 잡히지 않음
+  - 2분 이상 지난 건만: 토스 승인 타임아웃(30초) 동안 진행 중인 승인 요청과 대사가 같은 결제를 동시에 다루지 않게
+  - 조회 결과가 기록과 다를 때 확정하면 다른 결제의 상태로 원장이 기장될 수 있음 — 사람이 보게 남김
+  - 토스 404를 실패로 확정하지 않음: 다른 상점 키로 조회했을 가능성 등 "돈이 안 나갔다"를 확신할 수 없음
+- **변경 파일**: `src/payment/{payment-reconciler,payment-reconcile.scheduler,payment-outcome.service,payment.service,payment.module}.ts`, `src/common/scheduling/interval-job.ts`, `src/outbox/webhook-dispatch.scheduler.ts`, `test/payment/payment-reconcile.int-spec.ts`, `test/support/integration-app.ts`, `docs/*`, `.env.example`, `CLAUDE.md`, `README.md`
+- **문서**: CLAUDE.md 8장 서비스 레이어(결과 후속 기록 단일화, 주기 배치 규칙) 갱신
+- **남은 작업 / 주의**: 오래 풀리지 않는 `UNKNOWN`을 보는 admin 운영 API(`/admin/ops/unknown-payments`, 수동 대사)는 아직 없음
+
 #### refactor(payment): 결제 결과 후속 기록(주문·원장·outbox)을 PaymentOutcomeService로 분리
 - **무엇을**: `PaymentService`의 결과 후속 기록을 `PaymentOutcomeService.record(payment, order)`로 옮김. 동작 변경 없음 (결제 통합 테스트 34개 그대로 통과)
 - **왜**: 대사 배치도 같은 규칙(DONE → 주문 PAID·원장·PAYMENT_CONFIRMED …)으로 결과를 기록해야 함. 두 곳에 복사하면 규칙이 어긋남

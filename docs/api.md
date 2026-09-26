@@ -464,9 +464,11 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | 토스 자격증명 미등록 | `500 PG_CREDENTIAL_NOT_FOUND` | 기록 안 함 | admin에 문의 |
 | **토스 거절** (한도 초과 등) | `402 PAYMENT_REJECTED` + `detail.pgCode`·`pgMessage` | `FAILED` | `pgMessage`를 사용자에게 보여주고 **다른 결제창(새 paymentKey)으로 재시도**. 실패한 시도는 주문을 막지 않는다 |
 | 토스 키 인증 실패 (hub 설정 문제) | `502 PG_ERROR` + `detail.pgCode` | `FAILED` | admin에 문의 |
-| **토스 응답 지연·연결 실패** | `504 PG_TIMEOUT` | `UNKNOWN` | **재시도하지 말고** 결과 조회·웹훅을 기다린다 (대사가 확정) |
+| **토스 응답 지연·연결 실패** | `504 PG_TIMEOUT` | `UNKNOWN` | **재시도하지 말고** 결과 조회·웹훅을 기다린다 (대사 배치가 확정 ✅) |
 | **토스 5xx·이미 처리됨** | `502 PG_ERROR` | `UNKNOWN` | 위와 같음 |
 | 이 주문에 처리 중인 결제가 있음 | `409 PAYMENT_IN_PROGRESS` + `detail.paymentId` | 그대로 | 위와 같음 |
+
+**대사 배치 ✅**: 1분마다 `IN_PROGRESS`·`UNKNOWN` 중 2분 이상 지난 결제를 토스 조회 API로 확정한다. 토스 `DONE` → `DONE`(원장·`PAYMENT_CONFIRMED`), `ABORTED` → `FAILED`(토스 사유), `EXPIRED` → `EXPIRED`(둘 다 `PAYMENT_FAILED`). 토스도 승인 전이거나 조회가 실패하면 그대로 두고 다음 대사에서 다시 본다. 토스 응답이 결제 기록(paymentKey·orderId·금액)과 다르면 믿지 않고 `UNKNOWN`으로 남긴다.
 
 결제가 기록된 에러(`402`, `502`, `504`, `409 PAYMENT_IN_PROGRESS`)는 `detail.paymentId`(와 `paymentStatus`)를 준다. 이 ID로 `GET /payments/:paymentId`를 조회하면 된다.
 

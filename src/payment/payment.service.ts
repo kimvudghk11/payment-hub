@@ -32,7 +32,7 @@ export interface PaymentView {
 }
 
 /** 결과가 확정되지 않아 살아있는 것으로 보는 상태 (한 주문에 하나만 — uq_tb_payment_one_live_per_order) */
-const DEAD_STATUSES = [PaymentStatus.FAILED, PaymentStatus.ABORTED, PaymentStatus.EXPIRED];
+const DEAD_STATUSES: PaymentStatus[] = [PaymentStatus.FAILED, PaymentStatus.ABORTED, PaymentStatus.EXPIRED];
 const PENDING_RESULT_STATUSES: ReadonlySet<PaymentStatus> = new Set([
   PaymentStatus.IN_PROGRESS,
   PaymentStatus.UNKNOWN,
@@ -208,8 +208,8 @@ export class PaymentService {
     if (payment.status === PaymentStatus.IN_PROGRESS || payment.status === PaymentStatus.UNKNOWN) {
       throw new BusinessException(ErrorCode.PAYMENT_IN_PROGRESS, { paymentId: payment.paymentId });
     }
-    if (payment.status === PaymentStatus.FAILED || payment.status === PaymentStatus.ABORTED) {
-      const pgCode = payment.failureCode ?? 'UNKNOWN';
+    if (DEAD_STATUSES.includes(payment.status)) {
+      const pgCode = payment.failureCode ?? payment.status;
       throw new BusinessException(hubErrorForTossRejection(pgCode), {
         paymentId: payment.paymentId,
         paymentStatus: payment.status,

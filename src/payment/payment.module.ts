@@ -10,6 +10,8 @@ import { PaymentCancel } from './domain/payment-cancel.entity';
 import { PaymentCancelItem } from './domain/payment-cancel-item.entity';
 import { Payment } from './domain/payment.entity';
 import { PaymentOutcomeService } from './payment-outcome.service';
+import { PaymentReconcileScheduler } from './payment-reconcile.scheduler';
+import { PaymentReconciler } from './payment-reconciler';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
 
@@ -22,6 +24,6 @@ import { PaymentService } from './payment.service';
     OutboxModule,
   ],
   controllers: [PaymentController],
-  providers: [PaymentService, PaymentOutcomeService],
+  providers: [PaymentService, PaymentOutcomeService, PaymentReconciler, PaymentReconcileScheduler],
 })
 export class PaymentModule {}
