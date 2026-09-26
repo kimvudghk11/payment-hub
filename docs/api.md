@@ -221,9 +221,9 @@ API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키�
 
 | 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
 |---|---|---|---|---|
-| `POST` | `/admin/services/:serviceId/pg-credentials` | 등록 (같은 환경의 기존 활성 키는 같은 트랜잭션에서 비활성) | `PG_CREDENTIAL_REGISTERED` | 🚧 |
-| `GET` | `/admin/services/:serviceId/pg-credentials` | 목록 (mId·clientKey·hint·환경·활성 여부) | | 🚧 |
-| `POST` | `/admin/pg-credentials/:pgCredentialId/deactivate` | 비활성 (`reason` 필수) | `PG_CREDENTIAL_DEACTIVATED` | 🚧 |
+| `POST` | `/admin/services/:serviceId/pg-credentials` | 등록 (같은 환경의 기존 활성 키는 같은 트랜잭션에서 비활성) | `PG_CREDENTIAL_REGISTERED` | ✅ |
+| `GET` | `/admin/services/:serviceId/pg-credentials` | 목록 (mId·clientKey·hint·환경·활성 여부) | | ✅ |
+| `POST` | `/admin/pg-credentials/:pgCredentialId/deactivate` | 비활성 (`reason` 필수) | `PG_CREDENTIAL_DEACTIVATED` | ✅ |
 
 #### `POST /admin/services/:serviceId/pg-credentials`
 
@@ -238,6 +238,8 @@ API는 호출 주체에 따라 두 표면으로 완전히 나뉜다. **두 키�
 
 - `secretKey`는 AES-256-GCM으로 암호화해 저장하고, 암호화 키 버전을 `secret_key_id`에 남긴다 (키 교체 대비)
 - 시크릿 키는 **어떤 응답에도 반환하지 않는다.** 응답에는 끝 4자리 `secretKeyHint`만
+- 키 prefix가 환경과 다르면(`TEST`에 `live_` 키 등) `400 INVALID_REQUEST` — 운영 키가 테스트 설정에 섞이는 실수 방지
+- 교체로 자동 비활성된 이전 키는 새 키의 등록 감사 로그 `before`에 남는다 (사유 입력 불필요)
 
 ### 2.4 상품 유형
 
@@ -246,11 +248,13 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 감사 로그 | 상태 |
 |---|---|---|---|---|
-| `POST` | `/admin/services/:serviceId/product-types` | 등록 | `PRODUCT_TYPE_CREATED` | 🚧 |
-| `GET` | `/admin/services/:serviceId/product-types` | 목록 (`isActive` 필터) | | 🚧 |
-| `PATCH` | `/admin/services/:serviceId/product-types/:code` | 이름 수정, 중지(`isActive: false`), 재개(`isActive: true`) | `PRODUCT_TYPE_UPDATED` | 🚧 |
+| `POST` | `/admin/services/:serviceId/product-types` | 등록 | `PRODUCT_TYPE_CREATED` | ✅ |
+| `GET` | `/admin/services/:serviceId/product-types` | 목록 (`isActive` 필터) | | ✅ |
+| `PATCH` | `/admin/services/:serviceId/product-types/:code` | 이름 수정, 중지(`isActive: false`), 재개(`isActive: true`) | `PRODUCT_TYPE_UPDATED` | ✅ |
 
 - **삭제 API는 없다.** 기존 주문 항목이 FK로 참조하므로 `isActive: false`로 중지한다. 중지된 유형은 새 주문에만 쓸 수 없고 기존 결제·환불에는 영향 없음
+- 같은 서비스에 같은 코드를 다시 등록하면 `409 PRODUCT_TYPE_DUPLICATED` (다른 서비스는 같은 코드 사용 가능)
+- 감사 로그 `target_id`는 복합 PK라 `"<serviceId>:<code>"` 형식
 
 ```json
 // POST 요청
@@ -311,9 +315,16 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 
 | 메서드 | 경로 | 설명 | 상태 |
 |---|---|---|---|
-| `GET` | `/pg/client-config` | 결제창을 띄울 때 필요한 공개 값 (`clientKey`, `environment`) | 🚧 |
+| `GET` | `/pg/client-config` | 결제창을 띄울 때 필요한 공개 값 (`clientKey`, `environment`) | ✅ |
 
 서비스 프론트는 이 `clientKey`로 토스 결제창을 띄운다. 시크릿 키는 hub만 가진다.
+
+```json
+// 응답 200
+{ "success": true, "message": "PG 설정을 조회했습니다.", "data": { "provider": "TOSS", "environment": "LIVE", "clientKey": "live_ck_..." } }
+```
+
+이 hub 배포 환경(`PG_ENVIRONMENT`)의 활성 자격증명이 없으면 `500 PG_CREDENTIAL_NOT_FOUND` — 관리자가 PG 자격증명을 등록해야 한다.
 
 ### 3.2 주문
 

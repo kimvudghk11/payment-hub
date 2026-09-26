@@ -18,6 +18,7 @@ import { Service, ServiceUpdate } from '../../service/domain/service.entity';
 import { AdminAuditService } from '../audit/admin-audit.service';
 import { AdminAuditAction, AuditTargetType } from '../audit/constants/admin-audit.constants';
 import { ListServicesQueryDto } from './dto/request/list-services.query.dto';
+import { lockActiveService } from './service-lock';
 
 const DEFAULT_PAGE_SIZE = 20;
 const WEBHOOK_SECRET_PREFIX = 'whsec_';
@@ -120,7 +121,7 @@ export class AdminServiceService {
 
   @Transactional()
   async update(serviceId: string, changes: ServiceUpdate, actor: AdminActor): Promise<Service> {
-    const service = await this.lockService(serviceId);
+    const service = await lockActiveService(this.services, serviceId);
     const before = service.auditSnapshot();
 
     const changed = service.update(changes);
@@ -163,7 +164,7 @@ export class AdminServiceService {
 
   @Transactional()
   async rotateWebhookSecret(serviceId: string, actor: AdminActor): Promise<string> {
-    const service = await this.lockService(serviceId);
+    const service = await lockActiveService(this.services, serviceId);
     const webhookSecret = generateWebhookSecret();
     service.rotateWebhookSecret(this.encryption.encrypt(webhookSecret));
     await this.services.save(service);
@@ -186,7 +187,7 @@ export class AdminServiceService {
     params: { label: string; expiresAt?: string },
     actor: AdminActor,
   ): Promise<{ apiKey: ServiceApiKey; plaintext: string }> {
-    await this.lockService(serviceId);
+    await lockActiveService(this.services, serviceId);
 
     const { apiKey, plaintext } = ServiceApiKey.issue({
       serviceId,
@@ -247,7 +248,7 @@ export class AdminServiceService {
     reason: string | undefined,
     transition: (service: Service) => boolean,
   ): Promise<Service> {
-    const service = await this.lockService(serviceId);
+    const service = await lockActiveService(this.services, serviceId);
     const before = service.auditSnapshot();
     if (!transition(service)) return service;
 
@@ -263,16 +264,6 @@ export class AdminServiceService {
       after: service.auditSnapshot(),
       reason,
     });
-    return service;
-  }
-
-  /** 삭제되지 않은 서비스를 쓰기 락으로 조회. 동시 관리 작업을 직렬화한다 */
-  private async lockService(serviceId: string): Promise<Service> {
-    const service = await this.services.findOne({
-      where: { serviceId, deletedAt: IsNull() },
-      lock: { mode: 'pessimistic_write' },
-    });
-    if (!service) throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
     return service;
   }
 }

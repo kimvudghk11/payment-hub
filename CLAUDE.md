@@ -358,6 +358,7 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 | `ADMIN_REASON_REQUIRED` | 400 | 이 작업에는 사유 입력이 필요합니다. |
 | `RESOURCE_NOT_FOUND` | 404 | 요청한 리소스를 찾을 수 없습니다. (타 서비스 리소스도 404로 응답해 존재 여부를 숨긴다) |
 | `PRODUCT_TYPE_NOT_ALLOWED` | 400 | 등록되지 않은 상품 유형입니다. |
+| `PRODUCT_TYPE_DUPLICATED` | 409 | 이미 등록된 상품 유형입니다. |
 | `ORDER_NOT_FOUND` | 404 | 주문을 찾을 수 없습니다. |
 | `ORDER_AMOUNT_INVALID` | 400 | 주문 항목 합계와 주문 금액이 일치하지 않습니다. |
 | `ORDER_EXPIRED` | 409 | 결제 가능 시간이 지난 주문입니다. |

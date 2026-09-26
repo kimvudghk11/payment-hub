@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+### 2026-09-27
+
+#### feat(admin): PG 자격증명·상품 유형 관리 API 및 결제창 설정 조회 추가
+- **무엇을**:
+  - `PgCredential.register`(시크릿 키는 암호화 함수로만 넘기고 암호문·끝 4자리만 보관, 키 prefix `test_`/`live_`와 환경 불일치 시 `INVALID_REQUEST`), `deactivate`(멱등), `auditSnapshot`
+  - `ServiceProductType.create`, `update`(이름·isActive, 바뀐 필드 반환), `auditSnapshot`
+  - 관리자 API: `POST/GET /admin/services/:id/pg-credentials`, `POST /admin/pg-credentials/:id/deactivate`(사유 필수), `POST/GET /admin/services/:id/product-types`, `PATCH .../product-types/:code`
+  - 서비스 API: `GET /api/v1/pg/client-config` — 이 배포 환경의 활성 `clientKey`
+  - 에러 코드 `PRODUCT_TYPE_DUPLICATED`(409) 추가
+  - 서비스 행 락 조회를 `lockActiveService()`로 추출해 서비스·키·PG·상품 유형 관리가 공유
+  - 테스트 픽스처 `test/support/admin-fixtures.ts`
+- **왜**:
+  - 새 서비스 연동 절차(서비스 등록 → API 키 → 상품 유형 → PG 자격증명)를 API로 완성해야 주문·결제로 넘어갈 수 있음
+  - 토스 키는 prefix로 환경이 구분되므로, 운영 키가 테스트 설정에(또는 반대로) 들어가는 사고를 등록 시점에 차단. 검증은 엔티티 불변식으로 둬 우회 불가
+  - 활성 키는 (서비스, 환경)당 1개(부분 유니크 인덱스) → 새 키 등록 시 기존 키를 같은 트랜잭션에서 먼저 끄고, 교체 사실은 등록 감사 로그 `before`에 남김. 자동 비활성은 관리자가 직접 한 비활성과 달리 사유를 받지 않음
+  - 상품 유형은 기존 주문 항목이 FK로 참조하므로 삭제 대신 중지. 복합 PK라 감사 로그 target은 `<serviceId>:<code>`
+  - 결제창용 공개 키를 서비스가 따로 보관하지 않도록 hub가 제공 (키 교체가 hub 한 곳에서 끝남)
+- **변경 파일**: `src/service/domain/{pg-credential,service-product-type}.entity.ts`, `src/service/{service.service,service.controller}.ts`, `src/service/dto/response/pg-client-config.response.dto.ts`, `src/admin/service/{admin-pg-credential,admin-product-type}.{service,controller}.ts`, `src/admin/service/service-lock.ts`, `src/admin/service/admin-service.{service,module}.ts`, `src/admin/service/dto/**`, `src/common/errors/error-code.ts`, `test/**`, `docs/api.md`, `CLAUDE.md`, `README.md`
+- **스키마/에러 코드**: `PRODUCT_TYPE_DUPLICATED` 추가 (스키마 변경 없음)
+- **문서**: CLAUDE.md 에러 코드 표 갱신, `docs/api.md` 2.3·2.4·3.1 ✅
+- **남은 작업 / 주의**:
+  - PG 자격증명 등록 시 토스 API로 키가 실제로 유효한지 확인하지 않음 → PG 클라이언트 구현 후 추가 검토
+  - `error-code.ts`는 현재 26개로 한 파일 유지. 도메인당 10개를 넘기 시작하면 도메인별 정의 파일 + 중복 코드명 검사 테스트로 분리
+
 ### 2026-09-26
 
 #### feat(admin): 서비스·API 키 관리 API 및 서비스 API 키 인증(ApiKeyGuard) 추가

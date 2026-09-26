@@ -25,7 +25,12 @@ describe('ErrorCode', () => {
     expect(ErrorCode.CANCEL_AMOUNT_EXCEEDED.status).toBe(400);
     expect(ErrorCode.PG_TIMEOUT.status).toBe(504);
     expect(ErrorCode.INTERNAL_ERROR.message).toBe('일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
-    expect(Object.keys(ErrorCode)).toHaveLength(25);
+    expect(Object.keys(ErrorCode)).toHaveLength(26);
+    expect(ErrorCode.PRODUCT_TYPE_DUPLICATED).toEqual({
+      code: 'PRODUCT_TYPE_DUPLICATED',
+      status: 409,
+      message: '이미 등록된 상품 유형입니다.',
+    });
   });
 });
 

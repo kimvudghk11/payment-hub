@@ -20,6 +20,7 @@ const ERROR_DEFINITIONS = {
 
   // 주문
   PRODUCT_TYPE_NOT_ALLOWED: { status: 400, message: '등록되지 않은 상품 유형입니다.' },
+  PRODUCT_TYPE_DUPLICATED: { status: 409, message: '이미 등록된 상품 유형입니다.' },
   ORDER_NOT_FOUND: { status: 404, message: '주문을 찾을 수 없습니다.' },
   ORDER_AMOUNT_INVALID: { status: 400, message: '주문 항목 합계와 주문 금액이 일치하지 않습니다.' },
   ORDER_EXPIRED: { status: 409, message: '결제 가능 시간이 지난 주문입니다.' },
