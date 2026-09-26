@@ -278,7 +278,8 @@ src
 - [x] 결제 승인: 토스 클라이언트, 선기록(IN_PROGRESS) → 승인 → 결과 반영·원장 기장·outbox 이벤트 한 트랜잭션, 타임아웃은 UNKNOWN
 - [x] 결제 조회: 단건, 사용자별 이력(상태·수단 필터), 환불 가능 금액
 - [ ] 취소/부분 취소, 빌링 자동결제, 가상계좌
-- [ ] 웹훅 전달 폴러, 대사 배치
+- [x] 웹훅 발송 워커 (SKIP LOCKED 획득·임대, 서명, 지수 백오프 재시도, DEAD)
+- [ ] 대사 배치
 - [ ] 관리자 조회·운영 API, 매출 리포트
 
 - API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)

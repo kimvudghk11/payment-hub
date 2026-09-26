@@ -6,6 +6,22 @@
 
 ### 2026-09-27
 
+#### feat(outbox): 웹훅 발송 워커·스케줄러 추가
+- **무엇을**:
+  - `WebhookDispatcher.dispatchDue()`: (tx) `FOR UPDATE SKIP LOCKED`로 due 건 20개 획득·임대 → 서명 후 전송(트랜잭션 밖) → (tx) 결과 기록. 임대가 만료돼 다른 워커가 가져간 건(시도 횟수 불일치)은 덮어쓰지 않음
+  - `WebhookSender`: 본문 `{ eventId, eventType, occurredAt, data }`, 서명 헤더, 타임아웃(`WEBHOOK_TIMEOUT_MS`, 기본 10초), 리다이렉트 안 따라감, 응답 본문 안 읽음
+  - `WebhookDispatchScheduler`: `WEBHOOK_DISPATCH_INTERVAL_MS`(기본 1초)마다 실행, 배치가 가득 차면 비울 때까지 반복, 이전 틱 진행 중이면 건너뜀. `WEBHOOK_DISPATCH_ENABLED=false`로 끔
+  - 서비스에 서명 키가 없으면 보내지 않고 실패로 기록 (서명 없는 결제 이벤트를 내보내지 않음)
+  - 테스트: 가짜 서비스 수신 서버(`test/support/fake-webhook-receiver.ts`)로 서명을 **서비스용 예제 검증 코드로** 확인, 실패·재시도·연결 실패·임대 만료 재획득·워커 2개 동시 실행·서명 키 없음, 스케줄러 e2e. 통합 테스트 기본값은 스케줄러 꺼짐
+  - 문서: api.md 4장·서비스 가이드 7장(재시도 간격·횟수·10초 응답 제한), admin 가이드 서명 키 교체 주의, `.env.example`
+- **왜**:
+  - 결제 응답과 후속 처리를 분리(웹훅 비동기)하는 설계의 나머지 절반. 서비스가 응답을 못 받은 경우에도 결과를 받을 수 있게 됨
+  - 잠금 없이 획득하면 두 워커가 같은 건을 보냄 — 획득 구간을 겹치게 만든 테스트에서 잠금을 빼면 2번 전송되는 것을 확인
+  - 서명은 이벤트 생성 시점이 아니라 전송 시점 키로 해야 서명 키 교체 후 재시도가 새 키로 검증됨
+  - 리다이렉트를 따라가면 등록된 URL 밖으로 결제 이벤트가 나갈 수 있음
+- **변경 파일**: `src/outbox/{webhook-dispatcher,webhook-sender,webhook-dispatch.scheduler,outbox.module}.ts`, `test/outbox/*`, `test/support/{fake-webhook-receiver,admin-fixtures,integration-app}.ts`, `docs/api.md`, `docs/guides/*`, `.env.example`, `README.md`
+- **남은 작업 / 주의**: `DEAD` 조회·재전송 admin API, 이벤트 재조회 `GET /events`는 아직 없음
+
 #### feat(outbox): 웹훅 전달 상태 전이(획득·성공·재시도 백오프·DEAD) 도메인 추가
 - **무엇을**: `WebhookDelivery.claim/markSucceeded/markFailed`. 획득 시 `PROCESSING` + 시도 횟수 +1 + 임대(`locked_until`), 실패 시 1분 × 2^(n−1)(최대 1시간) 뒤 `RETRYING`, 10번째 실패면 `DEAD`. 에러 메시지 1000자 제한. 상수 `WEBHOOK_MAX_ATTEMPTS` 등
 - **왜**:

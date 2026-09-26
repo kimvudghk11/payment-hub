@@ -40,6 +40,8 @@ export interface PayableService {
   apiKey: string;
   /** 가짜 토스가 받은 Basic 인증을 검증할 때 사용 */
   tossSecretKey: string;
+  /** 서비스 등록 응답에서 1회만 받는 웹훅 서명 키 */
+  webhookSecret: string;
 }
 
 /**
@@ -62,7 +64,7 @@ export const onboardPayableService = async (
         options.webhookUrl === undefined ? 'https://svc.example.com/webhooks/payment-hub' : options.webhookUrl,
     });
   if (created.status !== 201) throw new Error(`서비스 등록 실패: ${created.status} ${JSON.stringify(created.body)}`);
-  const { serviceId } = dataOf<CreatedService>(created);
+  const { serviceId, webhookSecret } = dataOf<CreatedService & { webhookSecret: string }>(created);
 
   const tossSecretKey = `test_sk_${suffix}`;
   const credential = await ctx
@@ -84,5 +86,5 @@ export const onboardPayableService = async (
     .send({ code: 'PLAN', name: '요금제' });
   if (productType.status !== 201) throw new Error(`상품 유형 등록 실패: ${productType.status}`);
 
-  return { serviceId, apiKey: await issueApiKey(ctx, serviceId), tossSecretKey };
+  return { serviceId, apiKey: await issueApiKey(ctx, serviceId), tossSecretKey, webhookSecret };
 };

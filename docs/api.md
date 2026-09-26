@@ -714,14 +714,14 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 구현 상태:
 - 서명 규격(`src/outbox/webhook-signature.ts`)과 서비스용 검증 예제([examples/webhook-signature-verify.ts](../examples/webhook-signature-verify.ts)) ✅ — 서로 맞는지 테스트된다
 - 이벤트 기록 ✅ — 결제 승인 결과(`PAYMENT_CONFIRMED`·`PAYMENT_WAITING_FOR_DEPOSIT`·`PAYMENT_FAILED`)를 상태 변경과 같은 트랜잭션에서 `tb_outbox_event`에 남기고, 서비스에 `webhookUrl`이 있으면 전달 대상(`PENDING`)을 만든다
-- 실제 발송(outbox 폴러·재시도) 🚧
+- 발송 워커 ✅ — 1초마다 due 건을 `FOR UPDATE SKIP LOCKED`로 가져가 보낸다 (여러 인스턴스 안전, 한 건은 한 번에 한 워커만). 서명은 **보내는 시점의** 서명 키로 한다
 
 ### 서비스 쪽 처리 규칙
 
 1. 서명과 타임스탬프(5분 이내)를 검증한다
 2. `eventId`로 이미 처리한 이벤트인지 확인한다
 3. **2xx를 빠르게 응답**하고 무거운 후속 작업(프로비저닝 등)은 비동기로 처리한다
-4. 2xx가 아니면 hub가 지수 백오프로 재시도하고, 한도를 넘으면 `DEAD` → admin이 재전송
+4. 2xx가 아니면(리다이렉트 포함, 응답 제한 10초) hub가 재시도한다 — 1분, 2분, 4분 … 최대 1시간 간격으로 **10번**까지(약 4시간). 넘으면 `DEAD` → admin이 재전송 (재전송 API는 🚧). 재시도는 같은 `eventId`로 온다
 5. **후속 처리가 실패해도 hub는 자동 환불하지 않는다.** 서비스가 판단해 `POST /payments/:id/cancel`을 호출한다
 
 ---

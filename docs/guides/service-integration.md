@@ -40,7 +40,7 @@
 | 결제 승인·조회 | `POST /payments/confirm`, `GET /payments`, `GET /payments/:id`, `GET /payments/:id/refundable` | ✅ |
 | 환불 | `POST /payments/:id/cancel` | 🚧 |
 | 정기결제·빌링키 | `POST /payments/billing`, `/billing-keys` | 🚧 |
-| 웹훅 발송 | hub → 서비스 | 🚧 (이벤트 기록·서명 규격·검증 코드는 ✅) |
+| 웹훅 발송 | hub → 서비스 (`PAYMENT_CONFIRMED`·`PAYMENT_WAITING_FOR_DEPOSIT`·`PAYMENT_FAILED`) | ✅ |
 
 ---
 
@@ -184,7 +184,7 @@ sequenceDiagram
     S->>H: POST /payments/confirm
     H->>T: 승인
     H-->>S: DONE (즉시 응답)
-    H-)S: 웹훅 PAYMENT_CONFIRMED (비동기) 🚧
+    H-)S: 웹훅 PAYMENT_CONFIRMED (비동기)
 ```
 
 ### 5.1 주문 등록 ✅ (서비스 서버)
@@ -281,8 +281,8 @@ try {
 ### 5.4 결제 후 처리
 
 응답(`DONE`)을 받으면 사용자에게 완료 화면을 보여주고, 이용권 지급 같은 후속 처리를 한다.
-**지금은 웹훅 발송이 🚧이므로 confirm 응답과 `GET /payments/:id`를 기준으로 처리한다.** 이벤트 자체는 이미 기록되고 있어서, 발송이 구현되면 그 시점부터 `PAYMENT_CONFIRMED`가 전달된다.
-웹훅 발송 이후에는 응답과 웹훅 중 먼저 온 쪽에서 처리하되 `paymentId` 기준으로 한 번만 처리되게 만든다.
+같은 결과가 **응답과 웹훅 `PAYMENT_CONFIRMED` 두 경로로** 온다. 먼저 온 쪽에서 처리하되 `paymentId` 기준으로 한 번만 처리되게 만든다.
+응답을 못 받은 경우(서비스 쪽 타임아웃, 결과 불명)에도 결과가 확정되면 웹훅이 온다.
 가상계좌는 응답이 `WAITING_FOR_DEPOSIT`이고, 입금되면 `PAYMENT_CONFIRMED` 웹훅이 온다 (토스 입금 웹훅 수신은 🚧).
 
 ### 5.5 결제 조회 ✅
@@ -311,7 +311,7 @@ const refundable = await paymentHub.getRefundable(paymentId);              // �
 
 ## 7. 웹훅 수신 구현
 
-hub는 결제 상태가 바뀌면 서비스의 `webhookUrl`로 `POST`한다. 서명 규격과 검증 코드는 확정되어 있다 (hub 발송은 🚧).
+hub는 결제 상태가 바뀌면 서비스의 `webhookUrl`로 `POST`한다. 서비스에 `webhookUrl`이 없으면 보내지 않는다(이벤트는 기록됨).
 
 ### 7.1 요청 형식
 
@@ -359,7 +359,8 @@ app.post('/webhooks/payment-hub', express.raw({ type: 'application/json' }), asy
 
 ### 7.3 전달 보장
 
-- 2xx가 아니면 hub가 **지수 백오프로 재시도**한다. 한도를 넘으면 `DEAD`가 되고 admin이 재전송할 수 있다
+- 2xx가 아니면 hub가 **1분, 2분, 4분 … 최대 1시간 간격으로 10번까지**(약 4시간) 재시도한다. 리다이렉트(3xx)도 실패로 본다. 한도를 넘으면 `DEAD`가 되고 admin이 재전송할 수 있다 (재전송 API 🚧)
+- 응답은 **10초 안에** 해야 한다. 넘으면 실패로 보고 재시도한다
 - 순서는 보장되지 않는다. 처리 전에 `GET /payments/:id`로 최신 상태를 확인하는 것이 가장 안전하다
 - 놓친 이벤트는 `GET /events?after=<eventId>` 🚧로 따라잡는다
 

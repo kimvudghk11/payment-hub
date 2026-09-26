@@ -39,6 +39,8 @@ export const createIntegrationApp = async (env: Record<string, string> = {}): Pr
     ADMIN_API_KEY_HASHES: createHash('sha256').update(ADMIN_KEY).digest('hex'),
     ENCRYPTION_KEYS: `v1:${randomBytes(32).toString('base64')}`,
     ENCRYPTION_KEY_ID: 'v1',
+    // 발송 워커는 테스트가 직접 호출한다 (주기 실행은 웹훅 스케줄러 테스트에서만)
+    WEBHOOK_DISPATCH_ENABLED: 'false',
     ...env,
   });
 
