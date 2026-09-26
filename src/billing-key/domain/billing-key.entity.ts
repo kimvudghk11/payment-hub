@@ -1,4 +1,5 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Encrypted } from '../../common/crypto/encryption.service';
 import { BaseEntity } from '../../common/domain/base.entity';
 import { PgProvider } from '../../pg/constants/pg.constants';
 import { BillingKeyStatus } from '../constants/billing-key.constants';
@@ -42,4 +43,42 @@ export class BillingKey extends BaseEntity {
 
   @Column({ name: 'revoked_at', type: 'timestamptz', nullable: true })
   revokedAt: Date | null;
+
+  /** 토스 발급 결과 저장. 빌링키 원문은 암호화에만 쓰고 필드에 남기지 않는다 */
+  static issue(params: {
+    serviceId: string;
+    externalUserId: string;
+    customerKey: string;
+    billingKey: string;
+    cardCompany: string | null;
+    cardNumberMasked: string | null;
+    encrypt: (plaintext: string) => Encrypted;
+  }): BillingKey {
+    const encrypted = params.encrypt(params.billingKey);
+    const key = new BillingKey();
+    key.serviceId = params.serviceId;
+    key.externalUserId = params.externalUserId;
+    key.provider = PgProvider.TOSS;
+    key.customerKey = params.customerKey;
+    key.billingKeyEnc = encrypted.ciphertext;
+    key.billingKeyKeyId = encrypted.keyId;
+    key.cardCompany = params.cardCompany;
+    key.cardNumberMasked = params.cardNumberMasked;
+    key.status = BillingKeyStatus.ACTIVE;
+    key.revokedAt = null;
+    return key;
+  }
+
+  /** @returns 이번에 폐기했으면 true. 이미 폐기면 false (멱등) */
+  revoke(now: Date): boolean {
+    if (this.status === BillingKeyStatus.REVOKED) return false;
+    this.status = BillingKeyStatus.REVOKED;
+    this.revokedAt = now;
+    return true;
+  }
+
+  /** 자동결제에 쓸 수 있는지: 활성이고, 주문의 사용자와 같은 사용자의 수단 */
+  usableBy(externalUserId: string): boolean {
+    return this.status === BillingKeyStatus.ACTIVE && this.externalUserId === externalUserId;
+  }
 }

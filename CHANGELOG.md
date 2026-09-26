@@ -6,6 +6,14 @@
 
 ### 2026-09-27
 
+#### feat(billing-key): 빌링키·자동결제 도메인 추가
+- **무엇을**: `BillingKey.issue`(빌링키 원문은 암호화에만 사용)·`revoke`(멱등)·`usableBy(externalUserId)`(활성 + 같은 사용자). `Payment.startBilling`(BILLING, 빌링키 연결, 멱등키 `billing:<서비스 키>`, paymentKey는 응답 후)·`matchesBilling`(주문·빌링키·금액). `applyTossPayment`가 비어 있는 paymentKey를 토스 응답으로 채움. 승인·자동결제의 공통 초기화를 `Payment.start`로 추출
+- **왜**:
+  - 빌링키는 시크릿 키와 합쳐지면 결제가 되는 값 → 엔티티가 원문을 들고 있지 않게 (CLAUDE.md 3장 8번)
+  - 다른 사용자의 빌링키로 결제하는 실수를 도메인이 막음 (서비스 소유권은 DB 복합 FK, 사용자 일치는 앱 규칙)
+  - 멱등키 접두사로 결제 승인 키(`confirm:`)와 서비스가 정한 자동결제 키가 같은 컬럼에서 섞이지 않게
+- **변경 파일**: `src/billing-key/domain/billing-key.entity.ts`, `src/payment/domain/payment.entity.ts`, `test/billing-key/*`, `test/payment/payment.entity.spec.ts`
+
 #### feat(pg): 토스 빌링키 발급·자동결제 승인·주문번호 조회 추가
 - **무엇을**: `TossPaymentsClient.issueBillingKey`(`POST /v1/billing/authorizations/issue`, 결과 `TossBillingKeyResult`), `chargeBilling`(`POST /v1/billing/{billingKey}` + Idempotency-Key), `getPaymentByOrderId`(`GET /v1/payments/orders/{orderId}`). `TossBillingKey` 타입
 - **왜**: 자동결제의 토스 호출부. 자동결제는 응답을 받기 전에는 paymentKey를 모르므로, 결과 불명이 되면 주문번호로 조회해 대사해야 함

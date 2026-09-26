@@ -291,3 +291,42 @@ describe('Payment.refundableAmount', () => {
     },
   );
 });
+
+describe('Payment.startBilling (자동결제)', () => {
+  const billingKey = { billingKeyId: 'bk-1' };
+
+  it('BILLING 결제를 IN_PROGRESS로 — 빌링키 연결, paymentKey는 토스 응답 후 채운다', () => {
+    const source = order();
+    const payment = Payment.startBilling({
+      order: source,
+      billingKeyId: billingKey.billingKeyId,
+      idempotencyKey: 'sub-77-2026-10',
+    });
+
+    expect(payment).toMatchObject({
+      orderId: source.orderId,
+      serviceId: 'svc-1',
+      paymentType: PaymentType.BILLING,
+      billingKeyId: 'bk-1',
+      providerPaymentKey: null,
+      idempotencyKey: 'billing:sub-77-2026-10',
+      amount: 30000,
+      status: PaymentStatus.IN_PROGRESS,
+    });
+  });
+
+  it('토스 응답을 반영하면 paymentKey가 채워진다', () => {
+    const payment = Payment.startBilling({ order: order(), billingKeyId: 'bk-1', idempotencyKey: 'k' });
+    payment.applyTossPayment(tossPayment({ paymentKey: 'tbill_1' }));
+    expect(payment).toMatchObject({ providerPaymentKey: 'tbill_1', status: PaymentStatus.DONE });
+  });
+
+  it('matchesBilling: 같은 멱등키 재요청이 같은 자동결제인지 (주문·빌링키·금액)', () => {
+    const source = order();
+    const payment = Payment.startBilling({ order: source, billingKeyId: 'bk-1', idempotencyKey: 'k' });
+
+    expect(payment.matchesBilling({ orderId: source.orderId, billingKeyId: 'bk-1', amount: 30000 })).toBe(true);
+    expect(payment.matchesBilling({ orderId: source.orderId, billingKeyId: 'bk-2', amount: 30000 })).toBe(false);
+    expect(payment.matchesBilling({ orderId: source.orderId, billingKeyId: 'bk-1', amount: 1 })).toBe(false);
+  });
+});

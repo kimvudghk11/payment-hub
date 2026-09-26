@@ -123,14 +123,46 @@ export class Payment extends BaseEntity {
    * 금액은 요청 값이 아니라 주문에 고정된 결제 금액을 쓴다 (대조는 Order.assertConfirmable).
    */
   static startConfirm(params: { order: Order; paymentKey: string }): Payment {
+    return Payment.start(params.order, {
+      paymentType: PaymentType.NORMAL,
+      billingKeyId: null,
+      idempotencyKey: confirmIdempotencyKey(params.paymentKey),
+      providerPaymentKey: params.paymentKey,
+    });
+  }
+
+  /**
+   * 빌링키 자동결제 요청. 서비스가 정한 멱등키(구독ID-회차 등)로 재요청을 식별한다.
+   * paymentKey는 토스 응답을 받은 뒤 채워진다 (applyTossPayment).
+   */
+  static startBilling(params: { order: Order; billingKeyId: string; idempotencyKey: string }): Payment {
+    return Payment.start(params.order, {
+      paymentType: PaymentType.BILLING,
+      billingKeyId: params.billingKeyId,
+      idempotencyKey: `${BILLING_IDEMPOTENCY_PREFIX}${params.idempotencyKey}`,
+      providerPaymentKey: null,
+    });
+  }
+
+  /** 같은 멱등키 자동결제 재요청이 같은 요청인지 (주문·빌링키·금액) */
+  matchesBilling(request: { orderId: string; billingKeyId: string; amount: number }): boolean {
+    return (
+      this.orderId === request.orderId && this.billingKeyId === request.billingKeyId && this.amount === request.amount
+    );
+  }
+
+  private static start(
+    order: Order,
+    fields: Pick<Payment, 'paymentType' | 'billingKeyId' | 'idempotencyKey' | 'providerPaymentKey'>,
+  ): Payment {
     const payment = new Payment();
-    payment.orderId = params.order.orderId;
-    payment.serviceId = params.order.serviceId;
-    payment.billingKeyId = null;
+    payment.orderId = order.orderId;
+    payment.serviceId = order.serviceId;
+    payment.billingKeyId = fields.billingKeyId;
     payment.provider = PgProvider.TOSS;
-    payment.paymentType = PaymentType.NORMAL;
-    payment.idempotencyKey = confirmIdempotencyKey(params.paymentKey);
-    payment.providerPaymentKey = params.paymentKey;
+    payment.paymentType = fields.paymentType;
+    payment.idempotencyKey = fields.idempotencyKey;
+    payment.providerPaymentKey = fields.providerPaymentKey;
     payment.method = null;
     payment.methodType = null;
     payment.cardCompanyCode = null;
@@ -141,8 +173,8 @@ export class Payment extends BaseEntity {
     payment.bankCode = null;
     payment.virtualAccountNumber = null;
     payment.virtualAccountDueAt = null;
-    payment.currency = params.order.currency;
-    payment.amount = params.order.totalAmount;
+    payment.currency = order.currency;
+    payment.amount = order.totalAmount;
     payment.refundedAmount = 0;
     payment.status = PaymentStatus.IN_PROGRESS;
     payment.failureCode = null;
@@ -162,6 +194,8 @@ export class Payment extends BaseEntity {
   applyTossPayment(response: TossPayment): void {
     const waitingForDeposit = this.status === PaymentStatus.WAITING_FOR_DEPOSIT;
     if (!waitingForDeposit) this.assertUnresolved('토스 응답 반영');
+    // 자동결제는 토스 응답에서 처음 paymentKey를 받는다
+    if (!this.providerPaymentKey && response.paymentKey) this.providerPaymentKey = response.paymentKey;
     this.method = response.method;
     this.methodType = classifyMethod(response.method);
     this.cardCompanyCode = response.card?.issuerCode ?? null;
@@ -302,6 +336,9 @@ const assertCancelItems = (request: CancelRequest, orderItems: OrderItem[], pend
   }
   if (errors.length > 0) throw new BusinessException(ErrorCode.INVALID_REQUEST, { errors });
 };
+
+/** 자동결제 멱등키 접두사 — 결제 승인(confirm:)과 서비스 멱등키가 섞이지 않게. 서비스 키는 최대 90자 */
+export const BILLING_IDEMPOTENCY_PREFIX = 'billing:';
 
 /** 토스 Idempotency-Key·tb_payment.idempotency_key. paymentKey(최대 200자)를 해시해 컬럼 한도(100) 안에 맞춘다 */
 const confirmIdempotencyKey = (paymentKey: string): string =>
