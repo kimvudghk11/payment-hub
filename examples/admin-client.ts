@@ -225,6 +225,38 @@ export class PaymentHubAdminClient {
     return this.call<AdminPaymentDetail>(actor, 'GET', `/admin/payments/${paymentId}`);
   }
 
+  // ---------- 운영 큐 ----------
+
+  /** 웹훅 전달 내역. 실패 큐는 status: 'DEAD' */
+  async listWebhookDeliveries(
+    actor: AdminActor,
+    query: { status?: AdminWebhookDelivery['status']; serviceId?: string; limit?: number; cursor?: string } = {},
+  ) {
+    return this.call<Page<AdminWebhookDelivery>>(actor, 'GET', '/admin/ops/webhook-deliveries', undefined, query);
+  }
+
+  /** 서비스의 현재 webhookUrl로 바로 재전송. URL이 원인이었다면 updateService로 먼저 고친다 */
+  async redeliverWebhook(actor: AdminActor, deliveryId: string, reason?: string) {
+    return this.call<AdminWebhookDelivery>(actor, 'POST', `/admin/ops/webhook-deliveries/${deliveryId}/redeliver`, {
+      reason,
+    });
+  }
+
+  /** 대사 대기 결제 (IN_PROGRESS·UNKNOWN), 오래된 순 */
+  async listUnknownPayments(actor: AdminActor, query: { serviceId?: string; limit?: number } = {}) {
+    return this.call<Page<AdminPayment>>(actor, 'GET', '/admin/ops/unknown-payments', undefined, query);
+  }
+
+  /** 토스 조회로 지금 확정. resolved=false면 토스도 아직 모르거나 이미 확정된 결제 */
+  async reconcilePayment(actor: AdminActor, paymentId: string, reason?: string) {
+    return this.call<{ resolved: boolean; payment: AdminPayment }>(
+      actor,
+      'POST',
+      `/admin/ops/payments/${paymentId}/reconcile`,
+      { reason },
+    );
+  }
+
   private async call<T>(
     actor: AdminActor,
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',

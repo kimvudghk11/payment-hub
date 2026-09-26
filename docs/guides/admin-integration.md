@@ -27,7 +27,7 @@
 - hub는 actor 헤더를 검증하지 않고 **신뢰**한다. 그래서 admin API는 네트워크에서도 막는다(내부망·IP 허용 목록). 서비스 API와 같은 공개 경로로 노출하지 않는다
 - 관리자 권한 확인(예: "환불은 재무 권한만")은 admin 레포가 hub를 호출하기 **전에** 한다
 
-**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회 ✅ / 수동 환불·운영 큐·리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
+**구현 상태**: 서비스·API 키·PG 자격증명·상품 유형 관리 ✅ / 결제 조회·운영 큐 ✅ / 수동 환불·리포트·감사 로그 조회 🚧 (계약은 [api.md 2.5](../api.md#25-결제-조회운영))
 
 ---
 
@@ -166,7 +166,11 @@ const { apiKey } = await hub.issueApiKey(actor, service.serviceId, { label: 'pro
 | | 수정·중지·재개 | `PATCH …/product-types/:code` `{ name?, isActive? }` | **삭제 없음** — 중지는 새 주문에만 영향 |
 | **결제 검색** | 조회 | `GET /admin/payments?serviceId=&status=&paymentKey=&externalUserId=…` | CS: 토스 paymentKey·사용자 ID로 찾기. `status`는 쉼표로 여러 개 |
 | **결제 상세** | 조회 | `GET /admin/payments/:id` | 주문·취소 이력·원장 분개·웹훅 전달 내역·PG 응답 원본을 한 화면에 |
-| 수동 환불·운영·리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
+| **실패 웹훅** | 조회 | `GET /admin/ops/webhook-deliveries?status=DEAD&serviceId=` | `lastHttpStatus`·`lastError`로 원인 확인 |
+| | 재전송 | `POST /admin/ops/webhook-deliveries/:id/redeliver` | 서비스의 현재 webhookUrl로. 아래 운영 절차 참고 |
+| **대사 대기 결제** | 조회 | `GET /admin/ops/unknown-payments` | 오래된 순 |
+| | 수동 대사 | `POST /admin/ops/payments/:id/reconcile` | `resolved: false`면 토스도 아직 모름 |
+| 수동 환불·리포트·감사 로그 🚧 | | [api.md 2.5](../api.md#25-결제-조회운영) | |
 
 ---
 
@@ -186,6 +190,28 @@ const { apiKey } = await hub.issueApiKey(actor, service.serviceId, { label: 'pro
 ### 웹훅 서명 키 교체
 
 교체 즉시 hub는 새 키로 서명한다. 서비스가 env를 갱신하기 전까지 서명 검증이 실패하고, 그동안의 웹훅은 **재시도 대기**로 남았다가 갱신 후 전달된다 (재시도는 약 4시간까지 — 그 안에 env를 갱신하지 못하면 `DEAD`가 되어 재전송이 필요하다). 서비스 담당자와 시간을 맞춰 진행한다.
+
+### 실패한 웹훅(DEAD) 처리
+
+hub는 서비스가 2xx를 주지 않으면 약 4시간 동안 10번 재시도하고, 그래도 안 되면 `DEAD`로 둔다.
+
+1. `GET /admin/ops/webhook-deliveries?status=DEAD` — `lastHttpStatus`·`lastError`로 원인 확인 (404·연결 실패 → URL 문제, 401·400 → 서명 검증 실패, 5xx → 서비스 장애)
+2. 원인 해결: URL 문제면 `PATCH /admin/services/:id`로 `webhookUrl` 수정, 서명 문제면 서비스 담당자와 서명 키 확인
+3. `POST /admin/ops/webhook-deliveries/:id/redeliver` — **서비스의 현재 webhookUrl로** 바로 다시 보낸다 (감사 로그 `WEBHOOK_REDELIVERED`)
+
+- 시도 횟수는 유지되므로 재전송이 또 실패하면 곧바로 다시 `DEAD`가 된다 — 원인을 해결한 뒤에 누른다
+- 이미 성공한 건도 재전송할 수 있다 (서비스가 받은 뒤 데이터를 잃은 경우). 서비스는 `eventId`로 중복을 거르므로 안전하다
+
+### 결과 불명 결제(UNKNOWN) 처리
+
+토스 응답이 늦으면 결제는 `UNKNOWN`이 되고 **대사 배치가 1분마다 토스 조회로 확정**한다. 대부분은 사람이 할 일이 없다.
+
+1. `GET /admin/ops/unknown-payments` — 오래된 순. 몇 분 넘게 남아 있는 건이 대상
+2. `GET /admin/payments/:id` — `providerResponse`와 토스 상점관리자의 같은 `providerPaymentKey`를 비교
+3. `POST /admin/ops/payments/:id/reconcile` — 배치를 기다리지 않고 지금 토스 조회로 확정 (확정되면 감사 로그 `PAYMENT_RECONCILED`)
+
+- `resolved: false`는 토스도 아직 결과를 모르는 상태(사용자 인증만 되고 승인 전)다. 토스에서 만료되면 `EXPIRED`로 확정된다
+- 토스 응답이 결제 기록(paymentKey·주문·금액)과 다르면 hub는 확정하지 않는다 → 서버 로그의 "토스 조회 결과가 결제 기록과 다릅니다"를 확인하고 개발팀에 에스컬레이션
 
 ### 서비스 정지·삭제의 영향
 

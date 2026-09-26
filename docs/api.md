@@ -272,10 +272,10 @@ hub는 개별 상품(이름·가격)을 모른다. 서비스가 파는 **상품 
 | `GET` | `/admin/payments` | 전 서비스 결제 검색 | | ✅ |
 | `GET` | `/admin/payments/:paymentId` | 결제 상세 — 주문·항목, 취소 이력, 원장 분개, 웹훅 전달 내역, PG 응답 원본 | | ✅ |
 | `POST` | `/admin/payments/:paymentId/cancel` | 수동 환불 (`reason` 필수, `requested_by = ADMIN`) | `PAYMENT_CANCELED_BY_ADMIN` | 🚧 |
-| `GET` | `/admin/ops/unknown-payments` | 대사 대기 결제 (`IN_PROGRESS`·`UNKNOWN` 오래된 순) | | 🚧 |
-| `POST` | `/admin/ops/payments/:paymentId/reconcile` | 수동 대사 (토스 조회로 상태 확정) | `PAYMENT_RECONCILED` | 🚧 |
-| `GET` | `/admin/ops/webhook-deliveries` | 웹훅 전달 내역 (`status=DEAD` 등) | | 🚧 |
-| `POST` | `/admin/ops/webhook-deliveries/:deliveryId/redeliver` | 재전송 (`PENDING`으로, `attemptCount` 유지) | `WEBHOOK_REDELIVERED` | 🚧 |
+| `GET` | `/admin/ops/unknown-payments` | 대사 대기 결제 (`IN_PROGRESS`·`UNKNOWN` 오래된 순, `serviceId`·`limit`) | | ✅ |
+| `POST` | `/admin/ops/payments/:paymentId/reconcile` | 수동 대사 (토스 조회로 지금 확정). 응답 `{ resolved, payment }`. 확정했을 때만 감사 로그 | `PAYMENT_RECONCILED` | ✅ |
+| `GET` | `/admin/ops/webhook-deliveries` | 웹훅 전달 내역 (`status=DEAD` 등, `serviceId`, 최신순 cursor) | | ✅ |
+| `POST` | `/admin/ops/webhook-deliveries/:deliveryId/redeliver` | 재전송 (`PENDING`으로, **서비스의 현재 webhookUrl로**, `attemptCount` 유지). 이미 대기·전송 중이면 200·감사 로그 없음. webhookUrl이 없으면 `400` | `WEBHOOK_REDELIVERED` | ✅ |
 | `GET` | `/admin/ops/pg-webhooks` | 토스 웹훅 수신 내역 (`status=FAILED` 등) | | 🚧 |
 | `GET` | `/admin/reports/revenue` | 매출·환불 집계 (서비스별·일별·월별, KST 경계, `methodType`별) | | 🚧 |
 | `GET` | `/admin/audit-logs` | 감사 로그 (actor·대상·서비스·기간) | | 🚧 |

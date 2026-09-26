@@ -1673,6 +1673,261 @@
           "관리자 API — 결제"
         ]
       }
+    },
+    "/api/v1/admin/ops/webhook-deliveries": {
+      "get": {
+        "description": "실패 큐는 status=DEAD. 서비스별, 최신순 cursor 페이징",
+        "operationId": "AdminOpsController_listWebhookDeliveries",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "전달 상태 (실패 큐는 DEAD)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "PROCESSING",
+                "SUCCEEDED",
+                "RETRYING",
+                "DEAD"
+              ]
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "페이지 크기",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "이전 응답의 nextCursor",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminWebhookDeliveryPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "웹훅 전달 내역",
+        "tags": [
+          "관리자 API — 운영"
+        ]
+      }
+    },
+    "/api/v1/admin/ops/webhook-deliveries/{deliveryId}/redeliver": {
+      "post": {
+        "description": "PENDING으로 돌려 바로 보낸다. 받는 곳은 서비스의 현재 webhookUrl, 시도 횟수는 유지 (또 실패하면 다시 DEAD). 이미 대기·전송 중이면 그대로 200",
+        "operationId": "AdminOpsController_redeliver",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deliveryId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReasonRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminWebhookDeliveryResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "웹훅 재전송",
+        "tags": [
+          "관리자 API — 운영"
+        ]
+      }
+    },
+    "/api/v1/admin/ops/unknown-payments": {
+      "get": {
+        "description": "IN_PROGRESS·UNKNOWN 결제, 오래된 순. 대사 배치가 오래 확정하지 못한 건을 사람이 본다",
+        "operationId": "AdminOpsController_listUnknownPayments",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "serviceId",
+            "required": false,
+            "in": "query",
+            "description": "서비스 ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "최대 개수 (오래된 순)",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPaymentPageResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "대사 대기 결제",
+        "tags": [
+          "관리자 API — 운영"
+        ]
+      }
+    },
+    "/api/v1/admin/ops/payments/{paymentId}/reconcile": {
+      "post": {
+        "description": "토스 조회로 지금 확정한다 (배치의 2분 대기 없이). 확정했을 때만 감사 로그",
+        "operationId": "AdminOpsController_reconcile",
+        "parameters": [
+          {
+            "name": "X-Admin-Actor-Id",
+            "in": "header",
+            "description": "작업한 관리자 ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReasonRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReconcileResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "admin-api-key": []
+          }
+        ],
+        "summary": "수동 대사",
+        "tags": [
+          "관리자 API — 운영"
+        ]
+      }
     }
   },
   "info": {
@@ -3981,6 +4236,47 @@
           "ledger",
           "webhookDeliveries",
           "providerResponse"
+        ]
+      },
+      "AdminWebhookDeliveryPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminWebhookDeliveryResponseDto"
+            }
+          },
+          "totalCount": {
+            "type": "number",
+            "description": "필터에 맞는 전체 개수"
+          },
+          "nextCursor": {
+            "type": "string",
+            "description": "다음 페이지 cursor. 마지막이면 null",
+            "nullable": true
+          }
+        },
+        "required": [
+          "data",
+          "totalCount",
+          "nextCursor"
+        ]
+      },
+      "AdminReconcileResponseDto": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "boolean",
+            "description": "이번 요청으로 확정했으면 true. 토스도 아직 모르거나 이미 확정된 결제면 false"
+          },
+          "payment": {
+            "$ref": "#/components/schemas/AdminPaymentResponseDto"
+          }
+        },
+        "required": [
+          "resolved",
+          "payment"
         ]
       }
     }

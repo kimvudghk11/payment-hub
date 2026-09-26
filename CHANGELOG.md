@@ -6,6 +6,18 @@
 
 ### 2026-09-27
 
+#### feat(admin): 운영 큐 API 추가 — 실패 웹훅 조회·재전송, 대사 대기 결제 조회·수동 대사
+- **무엇을**:
+  - `GET /admin/ops/webhook-deliveries` (`status`·`serviceId`, 최신순 cursor), `POST /admin/ops/webhook-deliveries/:id/redeliver` — 행 락 → `redeliver`(서비스의 현재 webhookUrl) → 저장 → 감사 로그 `WEBHOOK_REDELIVERED`(before/after). 이미 대기·전송 중이면 200·감사 로그 없음, webhookUrl이 없으면 `400`
+  - `GET /admin/ops/unknown-payments` (IN_PROGRESS·UNKNOWN, 오래된 순), `POST /admin/ops/payments/:id/reconcile` — 토스 조회로 지금 확정, 응답 `{ resolved, payment }`. 확정했을 때만 감사 로그 `PAYMENT_RECONCILED`(before/after 상태)
+  - `PaymentReconciler.reconcileOne(paymentId, onResolved)` — 경과 시간 조건 없이 한 건 대사, 확정 트랜잭션 안에서 훅 실행. `PaymentModule`이 reconciler를 export
+  - 예제 `examples/admin-client.ts`에 운영 큐 4개, admin 가이드 화면 매핑·운영 절차(DEAD·UNKNOWN 처리 순서), api.md 2.5, OpenAPI 재생성
+- **왜**:
+  - 자동 처리(발송 재시도·대사 배치)가 결론을 못 낸 건을 사람이 처리할 수단. 지금까지 이 경우 "토스 상점관리자에서 확인"뿐이었음
+  - 수동 대사의 감사 로그가 대사 확정과 같은 트랜잭션이어야 "감사 로그 없는 관리 쓰기"가 생기지 않음 — 감사 로그 기록을 실패시키면 결제 확정·원장도 롤백되는 것을 테스트로 확인
+  - 확정 못 한 수동 대사는 상태를 바꾸지 않았으므로 감사 로그를 남기지 않음 (CLAUDE.md 6.5 멱등 규칙)
+- **변경 파일**: `src/admin/ops/*`, `src/payment/{payment-reconciler,payment.module}.ts`, `src/app.module.ts`, `examples/admin-client.ts`, `test/admin/admin-ops.int-spec.ts`, `test/docs/example-clients.int-spec.ts`, `docs/*`
+
 #### feat(outbox): 웹훅 관리자 재전송 규칙(redeliver) 도메인 추가
 - **무엇을**: `WebhookDelivery.redeliver(now, targetUrl)` — DEAD·RETRYING·SUCCEEDED → `PENDING`(바로 보낼 수 있게), 받는 곳은 서비스의 **현재** webhookUrl, 시도 횟수 유지. PENDING·PROCESSING이면 바꾸지 않고 `false`(멱등). `auditSnapshot()` 추가
 - **왜**:

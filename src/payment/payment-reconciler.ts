@@ -58,9 +58,22 @@ export class PaymentReconciler {
     let resolved = 0;
     for (const candidate of candidates) {
       const result = await this.lookup(candidate);
-      if (await this.apply(candidate.paymentId, result)) resolved += 1;
+      if ((await this.apply(candidate.paymentId, result)).resolved) resolved += 1;
     }
     return { checked: candidates.length, resolved };
+  }
+
+  /**
+   * 결제 한 건을 지금 대사한다 (관리자 수동 대사). 경과 시간 조건 없이 토스를 조회한다.
+   * 이미 확정된 결제는 토스를 부르지 않는다. onResolved는 확정한 트랜잭션 안에서 실행된다 (감사 로그용).
+   */
+  async reconcileOne(
+    paymentId: string,
+    onResolved?: (before: { status: PaymentStatus }, payment: Payment) => Promise<void>,
+  ): Promise<{ resolved: boolean; payment: Payment }> {
+    const payment = await this.payments.findOneByOrFail({ paymentId });
+    if (!UNRESOLVED_STATUSES.includes(payment.status)) return { resolved: false, payment };
+    return this.apply(paymentId, await this.lookup(payment), onResolved);
   }
 
   private async lookup(payment: Payment): Promise<TossResult | null> {
@@ -77,11 +90,16 @@ export class PaymentReconciler {
     }
   }
 
-  /** @returns 결제를 확정했으면 true */
+  /** @returns resolved: 결제를 확정했으면 true */
   @Transactional()
-  private async apply(paymentId: string, result: TossResult | null): Promise<boolean> {
+  private async apply(
+    paymentId: string,
+    result: TossResult | null,
+    onResolved?: (before: { status: PaymentStatus }, payment: Payment) => Promise<void>,
+  ): Promise<{ resolved: boolean; payment: Payment }> {
     const payment = await this.payments.findOneOrFail({ where: { paymentId }, lock: { mode: 'pessimistic_write' } });
-    if (!UNRESOLVED_STATUSES.includes(payment.status)) return false; // 그 사이 승인 응답·다른 대사가 확정함
+    if (!UNRESOLVED_STATUSES.includes(payment.status)) return { resolved: false, payment }; // 그 사이 승인 응답·다른 대사가 확정함
+    const before = { status: payment.status };
 
     if (result?.outcome === 'APPROVED' && this.belongsTo(result.payment, payment)) {
       const order = await this.orders.findOneOrFail({
@@ -91,12 +109,15 @@ export class PaymentReconciler {
       payment.applyTossPayment(result.payment);
       await this.payments.save(payment);
       await this.outcome.record(payment, order);
-      if (payment.status !== PaymentStatus.UNKNOWN) return true;
+      if (payment.status !== PaymentStatus.UNKNOWN) {
+        await onResolved?.(before, payment);
+        return { resolved: true, payment };
+      }
     }
 
     // 확정 못 함: 대사 순서의 뒤로
     await this.payments.update({ paymentId }, { updatedAt: new Date() });
-    return false;
+    return { resolved: false, payment };
   }
 
   /** 토스 응답이 정말 이 결제의 것인지. 다르면 믿지 않고 UNKNOWN으로 남겨 사람이 본다 */

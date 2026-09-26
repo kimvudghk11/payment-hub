@@ -278,7 +278,7 @@ try {
    - 승인됐으면 `DONE` + 웹훅 `PAYMENT_CONFIRMED`
    - 실패·만료면 `FAILED`/`EXPIRED` + 웹훅 `PAYMENT_FAILED` — 사용자는 같은 주문으로 다시 결제할 수 있다
    - 같은 `paymentKey`로 다시 승인하면 확정된 결과를 받는다 (`200 DONE` 또는 `402 PAYMENT_REJECTED`)
-4. 토스도 아직 모르는 결제(인증만 되고 승인 전)는 토스에서 만료될 때까지 `UNKNOWN`으로 남는다. 오래 풀리지 않으면 hub 운영자에게 문의한다 (admin 수동 대사 API는 🚧)
+4. 토스도 아직 모르는 결제(인증만 되고 승인 전)는 토스에서 만료될 때까지 `UNKNOWN`으로 남는다. 오래 풀리지 않으면 hub 운영자에게 문의한다 (admin이 수동 대사로 바로 확정할 수 있다)
 
 요청·응답·에러 전체는 [api.md 3.3](../api.md#33-결제) 참고.
 

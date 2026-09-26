@@ -143,6 +143,29 @@ describe('연동 예제 클라이언트 (examples/) — 실제 hub에 연결', (
     expect(detail.order.items).toHaveLength(1);
   });
 
+  it('admin 운영: 실패 웹훅 조회 → 재전송, 대사 대기 결제 조회 → 수동 대사', async () => {
+    const { service, apiKey } = await onboard();
+    await admin.updateService(actor, service.serviceId, { webhookUrl: 'https://svc.example.com/hook' });
+    const client = new PaymentHubServiceClient({ baseUrl, apiKey });
+    const { order } = await client.createOrder(orderInput('ex-ops-1'));
+    const payment = await client.confirmPayment({ orderId: order.orderId, paymentKey: 'tgen_ex_ops_1', amount: 10000 });
+    await ctx.dataSource.query(
+      `UPDATE tb_webhook_delivery d SET status = 'DEAD' FROM tb_outbox_event e
+        WHERE e.id = d.event_id AND e.aggregate_id = $1`,
+      [payment.paymentId],
+    );
+
+    const dead = await admin.listWebhookDeliveries(actor, { status: 'DEAD', serviceId: service.serviceId });
+    const redelivered = await admin.redeliverWebhook(actor, dead.data[0].webhookDeliveryId, '서비스 장애 복구 후');
+    const unknown = await admin.listUnknownPayments(actor, { serviceId: service.serviceId });
+    const reconciled = await admin.reconcilePayment(actor, payment.paymentId);
+
+    expect(dead.data.map((d) => d.eventType)).toEqual(['PAYMENT_CONFIRMED']);
+    expect(redelivered.status).toBe('PENDING');
+    expect(unknown.data).toEqual([]);
+    expect(reconciled).toMatchObject({ resolved: false, payment: { status: 'DONE' } });
+  });
+
   it('토스 거절은 PaymentHubError(402 PAYMENT_REJECTED) + detail.pgMessage로 사용자에게 사유를 보여줄 수 있다', async () => {
     const { apiKey } = await onboard();
     const client = new PaymentHubServiceClient({ baseUrl, apiKey });
