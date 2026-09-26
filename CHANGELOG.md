@@ -6,6 +6,11 @@
 
 ### 2026-09-26
 
+#### chore: .gitignore에 node_modules 항목 추가
+- **무엇을**: `.gitignore` 끝에 `node_modules` 추가
+- **왜**: 의존성 디렉터리가 커밋되지 않도록 명시 (기존 `node_modules/` 규칙과 중복이며 동작 변화 없음)
+- **변경 파일**: `.gitignore`
+
 #### chore: NestJS 프로젝트 초기 세팅
 - **무엇을**:
   - NestJS 11 프로젝트 뼈대: `package.json`, `tsconfig*.json`, `nest-cli.json`, ESLint 10(flat config, type-checked) + Prettier, `.editorconfig`, `.gitattributes`(LF 고정), `.gitignore`, `.env.example`
