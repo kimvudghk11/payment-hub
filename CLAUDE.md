@@ -392,7 +392,7 @@ ErrorCode.ORDER_NOT_FOUND // { code: 'ORDER_NOT_FOUND', status: 404, message: '.
 ### 테스트
 - 도메인 엔티티 메서드는 단위 테스트 필수 (상태 전이, 금액 경계값, 잘못된 전이).
 - 결제·취소 유스케이스는 멱등 재요청, 동시 요청, 토스 타임아웃, 서비스 소유권 위반 케이스 포함.
-- 에러 케이스 테스트는 HTTP status뿐 아니라 **에러 `code`까지** 검증한다.
+- 에러 케이스 테스트는 HTTP status뿐 아니라 **에러 `code`까지** 검증한다. 엔티티·함수 단위는 `test/support/business-error.ts`의 `expectBusinessError(fn, 'CODE')`를 쓴다.
 - 테스트 위치: `/test/<domain>/*.spec.ts`.
 - DB가 필요한 통합 테스트는 `*.int-spec.ts` → `npm run test:integration`. 실행마다 `TEST_DB_DATABASE`(기본 `payment_hub_test`, `_test`로 끝나야 함)를 DROP 후 재생성하고 `db/schema.sql`을 적용한다.
 - `test/schema/`의 적합성 테스트가 엔티티 ↔ 스키마(테이블·컬럼·타입·길이·nullable·PK·FK)와 constants ↔ CHECK 값을 검증한다. 스키마·엔티티·constants를 바꾸면 반드시 통과시킨다.

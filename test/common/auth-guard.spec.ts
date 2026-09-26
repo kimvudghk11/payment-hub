@@ -197,7 +197,7 @@ describe('인증 가드 (기본 거부)', () => {
         });
 
       expect(res.status).toBe(200);
-      expect(res.body).toEqual(
+      expect((res.body as { data: unknown }).data).toEqual(
         expect.objectContaining({ actorId: 'admin-7', actorName: '홍길동', requestId: 'req-123' }),
       );
     });

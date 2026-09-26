@@ -1,6 +1,9 @@
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import { CreatedAtEntity } from '../../../common/domain/created-at.entity';
-import { AdminAuditAction } from '../constants/admin-audit.constants';
+import { BusinessException } from '../../../common/errors/business.exception';
+import { ErrorCode } from '../../../common/errors/error-code';
+import { AdminActor } from '../../../common/types/request-context';
+import { AdminAuditAction, REASON_REQUIRED_ACTIONS } from '../constants/admin-audit.constants';
 
 /** admin API를 통한 모든 관리 쓰기 기록. append-only (UPDATE/DELETE는 DB 트리거가 차단) */
 @Entity({ name: 'tb_admin_audit_log' })
@@ -46,4 +49,35 @@ export class AdminAuditLog extends CreatedAtEntity {
 
   @Column({ name: 'ip', type: 'varchar', length: 45, nullable: true })
   ip: string | null;
+
+  /** 영향이 큰 작업(REASON_REQUIRED_ACTIONS)은 사유가 없으면 거부한다 */
+  static record(params: {
+    actor: AdminActor;
+    action: AdminAuditAction;
+    targetType: string;
+    targetId: string;
+    serviceId?: string | null;
+    before?: Record<string, unknown> | null;
+    after?: Record<string, unknown> | null;
+    reason?: string | null;
+  }): AdminAuditLog {
+    const reason = params.reason?.trim() || null;
+    if (REASON_REQUIRED_ACTIONS.has(params.action) && !reason) {
+      throw new BusinessException(ErrorCode.ADMIN_REASON_REQUIRED);
+    }
+
+    const log = new AdminAuditLog();
+    log.actorId = params.actor.actorId;
+    log.actorName = params.actor.actorName;
+    log.requestId = params.actor.requestId;
+    log.ip = params.actor.ip;
+    log.action = params.action;
+    log.targetType = params.targetType;
+    log.targetId = params.targetId;
+    log.serviceId = params.serviceId ?? null;
+    log.before = params.before ?? null;
+    log.after = params.after ?? null;
+    log.reason = reason;
+    return log;
+  }
 }

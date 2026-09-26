@@ -18,3 +18,22 @@ export const AdminAuditAction = {
   PAYMENT_RECONCILED: 'PAYMENT_RECONCILED',
 } as const;
 export type AdminAuditAction = (typeof AdminAuditAction)[keyof typeof AdminAuditAction];
+
+/** 영향이 큰 작업. 사유 없이는 기록(=실행)할 수 없다 → ADMIN_REASON_REQUIRED */
+export const REASON_REQUIRED_ACTIONS: ReadonlySet<AdminAuditAction> = new Set([
+  AdminAuditAction.SERVICE_SUSPENDED,
+  AdminAuditAction.SERVICE_DELETED,
+  AdminAuditAction.PG_CREDENTIAL_DEACTIVATED,
+  AdminAuditAction.PAYMENT_CANCELED_BY_ADMIN,
+]);
+
+/** tb_admin_audit_log.target_type. 코드가 분기하지 않는 값이라 DB CHECK는 없다 */
+export const AuditTargetType = {
+  SERVICE: 'SERVICE',
+  API_KEY: 'API_KEY',
+  PG_CREDENTIAL: 'PG_CREDENTIAL',
+  PRODUCT_TYPE: 'PRODUCT_TYPE',
+  PAYMENT: 'PAYMENT',
+  WEBHOOK_DELIVERY: 'WEBHOOK_DELIVERY',
+} as const;
+export type AuditTargetType = (typeof AuditTargetType)[keyof typeof AuditTargetType];

@@ -6,6 +6,24 @@
 
 ### 2026-09-26
 
+#### feat(service): 서비스·API 키 도메인 행위 및 공통 기반(암호화·응답 래퍼·검증 메시지·cursor) 추가
+- **무엇을**:
+  - `EncryptionService`: AES-256-GCM + 버전 키링(`v1:<base64>,v2:...`). 암호문 `iv|tag|ciphertext`, 키 ID 함께 반환. 설정 오류(빈 키링, 32바이트 아님, 중복 ID, 현재 키 ID 없음)는 생성 시 실패
+  - `ResponseInterceptor` + `@ResponseMessage()`: 성공 응답 `{ success: true, message, data }`. `IResponseBase`/`IPageable` 타입
+  - `ValidationMessage`: 한국어 검증 메시지 공통 함수. 영문 필드명도 읽는 소리에 맞춰 은/는 선택
+  - cursor 페이징 인코딩/디코딩 (`(createdAt, id)` → base64url), 깨진 cursor는 `400 INVALID_REQUEST`
+  - `Service`: `create`, `update`(바뀐 필드 반환), `suspend`/`resume`(멱등, 변경 여부 반환), `delete`(soft), `rotateWebhookSecret`, `auditSnapshot`. 삭제된 서비스에 대한 모든 행위는 `RESOURCE_NOT_FOUND`
+  - `ServiceApiKey`: `issue`(환경별 `ph_test_`/`ph_live_` + 32바이트 랜덤, 평문은 반환값으로 1회, 엔티티엔 SHA-256만), `hash`, `revoke`(멱등, 최초 시각 유지), `isExpired`, `auditSnapshot`
+  - `AdminAuditLog.record`: 사유 필수 작업(`SERVICE_SUSPENDED`, `SERVICE_DELETED`, `PG_CREDENTIAL_DEACTIVATED`, `PAYMENT_CANCELED_BY_ADMIN`)은 사유 없으면 `ADMIN_REASON_REQUIRED`
+  - 테스트 헬퍼 `expectBusinessError`
+- **왜**:
+  - 관리자 API 구현 전에 도메인 규칙을 DB 없이 단위 테스트로 고정 (CLAUDE.md 설계 원칙 9)
+  - 정지·재개·폐기를 멱등으로 두어 admin 레포 재시도가 에러가 되지 않게 하고, 변경 여부로 감사 로그 중복 기록을 막음
+  - 감사 로그 사유 검증을 엔티티에 두면 어떤 경로로 기록하든 우회할 수 없음
+  - 암호화 키에 버전을 붙여 키 교체 후에도 이전 암호문 복호화 가능
+- **변경 파일**: `src/common/crypto/encryption.service.ts`, `src/common/interceptors/response.interceptor.ts`, `src/common/decorators/response-message.decorator.ts`, `src/common/utils/{validation-message,cursor}.util.ts`, `src/app.setup.ts`, `src/service/domain/{service,service-api-key}.entity.ts`, `src/admin/audit/**`, `test/**`, `CLAUDE.md`
+- **남은 작업 / 주의**: `EncryptionService`의 Nest 모듈 등록과 env(`ENCRYPTION_KEYS`, `ENCRYPTION_KEY_ID`)는 관리자 API 커밋에서
+
 #### feat(auth): 기본 거부 전역 가드 및 관리자 인증(AdminGuard) 추가
 - **무엇을**:
   - `@Public()` / `@ServiceApi()` / `@AdminApi()` 데코레이터 (컨트롤러·핸들러 모두 가능, 핸들러 우선)
