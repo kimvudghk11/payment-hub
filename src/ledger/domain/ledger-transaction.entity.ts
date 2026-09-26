@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import { Column, Entity, OneToMany, PrimaryGeneratedColumn } from 'typeorm';
 import { CreatedAtEntity } from '../../common/domain/created-at.entity';
-import { PaymentStatus } from '../../payment/constants/payment.constants';
+import { PaymentCancelStatus, PaymentStatus } from '../../payment/constants/payment.constants';
+import type { PaymentCancel } from '../../payment/domain/payment-cancel.entity';
 import type { Payment } from '../../payment/domain/payment.entity';
 import { LedgerDirection, LedgerReferenceType, LedgerTransactionType } from '../constants/ledger.constants';
 import { LedgerEntry } from './ledger-entry.entity';
@@ -57,6 +58,31 @@ export class LedgerTransaction extends CreatedAtEntity {
     transaction.entries = [
       LedgerEntry.create(transaction, accounts.pgReceivableAccountId, LedgerDirection.DEBIT, payment),
       LedgerEntry.create(transaction, accounts.revenueAccountId, LedgerDirection.CREDIT, payment),
+    ];
+    return transaction;
+  }
+
+  /** 환불(취소 확정 건 단위): 차) 환불(매출 차감) / 대) PG 미수금. 사건 시각은 토스 취소 시각 */
+  static paymentCanceled(
+    cancel: PaymentCancel,
+    currency: string,
+    accounts: { refundAccountId: string; pgReceivableAccountId: string },
+  ): LedgerTransaction {
+    if (cancel.status !== PaymentCancelStatus.DONE || !cancel.canceledAt) {
+      throw new Error(`취소 ${cancel.paymentCancelId}: ${cancel.status} 상태는 환불 기장 대상이 아님`);
+    }
+    const transaction = new LedgerTransaction();
+    transaction.ledgerTransactionId = randomUUID();
+    transaction.serviceId = cancel.serviceId;
+    transaction.transactionType = LedgerTransactionType.PAYMENT_CANCELED;
+    transaction.referenceType = LedgerReferenceType.PAYMENT_CANCEL;
+    transaction.referenceId = cancel.paymentCancelId;
+    transaction.description = null;
+    transaction.occurredAt = cancel.canceledAt;
+    const money = { amount: cancel.amount, currency };
+    transaction.entries = [
+      LedgerEntry.create(transaction, accounts.refundAccountId, LedgerDirection.DEBIT, money),
+      LedgerEntry.create(transaction, accounts.pgReceivableAccountId, LedgerDirection.CREDIT, money),
     ];
     return transaction;
   }

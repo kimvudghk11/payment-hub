@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import type { Order } from '../../order/domain/order.entity';
+import type { PaymentCancel } from '../../payment/domain/payment-cancel.entity';
 import type { Payment } from '../../payment/domain/payment.entity';
 import { OutboxAggregateType, OutboxEventType } from '../constants/outbox.constants';
 
@@ -57,6 +58,22 @@ export class OutboxEvent {
       failureMessage: payment.failureMessage,
     };
     event.occurredAt = occurredAt;
+    return event;
+  }
+
+  /** 환불 확정 이벤트. 결제 요약(환불 누적 반영) + 이번 취소 건. 사건 시각은 토스 취소 시각 */
+  static forPaymentCancel(payment: Payment, order: Order, cancel: PaymentCancel): OutboxEvent {
+    const canceledAt = cancel.canceledAt ?? new Date();
+    const event = OutboxEvent.forPayment(OutboxEventType.PAYMENT_CANCELED, payment, order, canceledAt);
+    event.payload = {
+      ...event.payload,
+      cancel: {
+        paymentCancelId: cancel.paymentCancelId,
+        amount: cancel.amount,
+        reasonCode: cancel.reasonCode,
+        canceledAt: canceledAt.toISOString(),
+      },
+    };
     return event;
   }
 }

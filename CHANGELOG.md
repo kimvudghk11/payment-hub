@@ -6,6 +6,11 @@
 
 ### 2026-09-27
 
+#### feat(ledger): 환불 반대 분개·환불 이벤트(PAYMENT_CANCELED) 도메인 추가
+- **무엇을**: `LedgerTransaction.paymentCanceled(cancel, currency, accounts)` — 차) REFUND / 대) PG_RECEIVABLE, 취소 건 단위(`reference_type = PAYMENT_CANCEL`), 사건 시각은 토스 취소 시각. `OutboxEvent.forPaymentCancel` — 결제 요약(환불 누적 반영) + `cancel { paymentCancelId, amount, reasonCode, canceledAt }`
+- **왜**: 원장은 append-only라 환불은 매출 행을 고치지 않고 반대 분개로 남김(CLAUDE.md 4장 분개 규칙). 취소 건 단위로 기장해 `(transaction_type, reference_type, reference_id)` 유니크가 부분 환불마다 한 번만 기장되게 보장. 서비스는 웹훅의 `cancel`로 어떤 환불 요청이 확정됐는지 알 수 있음
+- **변경 파일**: `src/ledger/domain/ledger-transaction.entity.ts`, `src/outbox/domain/outbox-event.entity.ts`, `test/ledger/*`, `test/outbox/outbox-event.entity.spec.ts`
+
 #### feat(payment): 환불 요청 검증·취소 확정 도메인 추가
 - **무엇을**:
   - `Payment.requestCancel(request, orderItems)`: 취소 가능 상태(DONE·PARTIAL_CANCELED) 확인, 상한 = 환불 가능 금액 − **처리 중(REQUESTED·UNKNOWN) 취소 합계** → 넘으면 `CANCEL_AMOUNT_EXCEEDED`(`detail.refundableAmount`). 항목 검증(이 주문 항목인지, 중복, 취소 가능 수량 = 수량 − 취소된 − 처리 중, 항목 금액 합계 = 환불 금액)은 `INVALID_REQUEST` + 필드별 메시지. REQUESTED `PaymentCancel`(+항목)을 만들어 `cancels`에 붙임

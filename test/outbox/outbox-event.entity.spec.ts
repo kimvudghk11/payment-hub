@@ -7,6 +7,7 @@ import { OutboxEvent } from '../../src/outbox/domain/outbox-event.entity';
 import { WebhookDelivery } from '../../src/outbox/domain/webhook-delivery.entity';
 import { Order } from '../../src/order/domain/order.entity';
 import { PaymentMethodType, PaymentStatus } from '../../src/payment/constants/payment.constants';
+import { PaymentCancel } from '../../src/payment/domain/payment-cancel.entity';
 import { Payment } from '../../src/payment/domain/payment.entity';
 
 const now = new Date('2026-09-27T01:16:04.000Z');
@@ -174,6 +175,32 @@ describe('WebhookDelivery — 전달 시도 상태', () => {
 
     it('PROCESSING이 아니면 결과를 기록할 수 없다', () => {
       expect(() => pending().markSucceeded(200, t0)).toThrow('PENDING');
+    });
+  });
+});
+
+describe('OutboxEvent.forPaymentCancel', () => {
+  it('PAYMENT_CANCELED: 결제 요약(환불 누적 반영) + 이번 취소 건 정보', () => {
+    const canceledPayment = Object.assign(new Payment(), {
+      ...payment,
+      status: PaymentStatus.PARTIAL_CANCELED,
+      refundedAmount: 3000,
+    });
+    const cancel = Object.assign(new PaymentCancel(), {
+      paymentCancelId: 'cancel-1',
+      amount: 3000,
+      reasonCode: 'USER_REQUEST',
+      canceledAt: now,
+    });
+
+    const event = OutboxEvent.forPaymentCancel(canceledPayment, order, cancel);
+
+    expect(event).toMatchObject({ eventType: OutboxEventType.PAYMENT_CANCELED, aggregateId: 'pay-1', occurredAt: now });
+    expect(event.payload).toMatchObject({
+      paymentId: 'pay-1',
+      status: PaymentStatus.PARTIAL_CANCELED,
+      refundedAmount: 3000,
+      cancel: { paymentCancelId: 'cancel-1', amount: 3000, reasonCode: 'USER_REQUEST', canceledAt: now.toISOString() },
     });
   });
 });
