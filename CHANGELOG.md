@@ -6,6 +6,14 @@
 
 ### 2026-09-27
 
+#### feat(outbox): 웹훅 관리자 재전송 규칙(redeliver) 도메인 추가
+- **무엇을**: `WebhookDelivery.redeliver(now, targetUrl)` — DEAD·RETRYING·SUCCEEDED → `PENDING`(바로 보낼 수 있게), 받는 곳은 서비스의 **현재** webhookUrl, 시도 횟수 유지. PENDING·PROCESSING이면 바꾸지 않고 `false`(멱등). `auditSnapshot()` 추가
+- **왜**:
+  - DEAD의 흔한 원인이 webhookUrl 오류라, 발행 시점 URL 스냅샷으로 다시 보내면 소용이 없음 → admin이 URL을 고친 뒤 재전송하는 흐름
+  - 시도 횟수를 유지해 재전송도 실패하면 곧바로 다시 DEAD (재전송이 무한 재시도로 번지지 않게)
+  - 성공한 건도 재전송 허용: 서비스가 받은 뒤 처리 중 데이터를 잃은 경우 (서비스는 eventId로 멱등 처리)
+- **변경 파일**: `src/outbox/domain/webhook-delivery.entity.ts`, `test/outbox/outbox-event.entity.spec.ts`
+
 #### feat(admin): 전 서비스 결제 검색·결제 상세 API 추가
 - **무엇을**:
   - `GET /admin/payments`: 서비스·상태(쉼표 여러 개)·수단·카드사·기간·사용자·서비스 주문번호·구독·**토스 paymentKey** 필터, 최신순 cursor 페이징. 항목에 `serviceId`·`providerPaymentKey` 추가

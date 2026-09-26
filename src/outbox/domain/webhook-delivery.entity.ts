@@ -105,6 +105,32 @@ export class WebhookDelivery extends BaseEntity {
     this.nextAttemptAt = new Date(now.getTime() + retryDelayMs(this.attemptCount));
   }
 
+  /**
+   * 관리자 재전송: 바로 보낼 수 있게 PENDING으로. 받는 곳은 서비스의 현재 webhookUrl (DEAD의 흔한 원인이 URL 오류라서).
+   * 시도 횟수는 유지하므로 재전송이 또 실패하면 다시 DEAD — "한 번 더 보내 보기"다.
+   * @returns 바꿨으면 true. 이미 보낼 예정(PENDING)·보내는 중(PROCESSING)이면 false (멱등, 감사 로그 없음)
+   */
+  redeliver(now: Date, targetUrl: string): boolean {
+    if (this.status === WebhookDeliveryStatus.PENDING || this.status === WebhookDeliveryStatus.PROCESSING) {
+      return false;
+    }
+    this.status = WebhookDeliveryStatus.PENDING;
+    this.nextAttemptAt = now;
+    this.targetUrl = targetUrl;
+    this.lockedUntil = null;
+    return true;
+  }
+
+  /** 감사 로그 before/after */
+  auditSnapshot(): Record<string, unknown> {
+    return {
+      status: this.status,
+      attemptCount: this.attemptCount,
+      targetUrl: this.targetUrl,
+      lastHttpStatus: this.lastHttpStatus,
+    };
+  }
+
   private assertProcessing(): void {
     if (this.status !== WebhookDeliveryStatus.PROCESSING) {
       throw new Error(`웹훅 전달 ${this.webhookDeliveryId}: ${this.status} 상태는 결과 기록 불가`);

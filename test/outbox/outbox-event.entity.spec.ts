@@ -204,3 +204,80 @@ describe('OutboxEvent.forPaymentCancel', () => {
     });
   });
 });
+
+describe('WebhookDelivery.redeliver — 관리자 재전송', () => {
+  const t0 = new Date('2026-09-27T02:00:00.000Z');
+  const dead = () => {
+    const delivery = WebhookDelivery.pending(
+      OutboxEvent.forPayment(OutboxEventType.PAYMENT_CONFIRMED, payment, order, now),
+      'https://old.example.com/hook',
+    );
+    let clock = t0;
+    for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt++) {
+      delivery.claim(clock, 60_000);
+      delivery.markFailed({ httpStatus: 404, error: 'HTTP 404' }, clock);
+      clock = delivery.nextAttemptAt;
+    }
+    return delivery;
+  };
+
+  it('DEAD → PENDING, 바로 보낼 수 있게, 서비스의 현재 webhookUrl로 (시도 횟수는 유지)', () => {
+    const delivery = dead();
+    const redeliverAt = new Date('2026-09-28T00:00:00.000Z');
+
+    expect(delivery.redeliver(redeliverAt, 'https://new.example.com/hook')).toBe(true);
+    expect(delivery).toMatchObject({
+      status: WebhookDeliveryStatus.PENDING,
+      nextAttemptAt: redeliverAt,
+      targetUrl: 'https://new.example.com/hook',
+      attemptCount: WEBHOOK_MAX_ATTEMPTS,
+    });
+  });
+
+  it('재전송한 건이 또 실패하면 다시 DEAD (한 번 더 보내 보는 것)', () => {
+    const delivery = dead();
+    delivery.redeliver(t0, 'https://new.example.com/hook');
+    delivery.claim(t0, 60_000);
+    delivery.markFailed({ httpStatus: 500, error: 'HTTP 500' }, t0);
+    expect(delivery.status).toBe(WebhookDeliveryStatus.DEAD);
+  });
+
+  it('이미 성공한 건도 재전송할 수 있다 (서비스가 처리 중 데이터를 잃은 경우)', () => {
+    const delivery = WebhookDelivery.pending(
+      OutboxEvent.forPayment(OutboxEventType.PAYMENT_CONFIRMED, payment, order, now),
+      'https://a',
+    );
+    delivery.claim(t0, 60_000);
+    delivery.markSucceeded(200, t0);
+
+    expect(delivery.redeliver(t0, 'https://a')).toBe(true);
+    expect(delivery.status).toBe(WebhookDeliveryStatus.PENDING);
+  });
+
+  it.each([WebhookDeliveryStatus.PENDING, WebhookDeliveryStatus.PROCESSING])(
+    '%s는 이미 보낼 예정·보내는 중이라 바꾸지 않는다 (멱등, false)',
+    (status) => {
+      const delivery = WebhookDelivery.pending(
+        OutboxEvent.forPayment(OutboxEventType.PAYMENT_CONFIRMED, payment, order, now),
+        'https://a',
+      );
+      if (status === WebhookDeliveryStatus.PROCESSING) delivery.claim(t0, 60_000);
+      const before = { ...delivery };
+
+      expect(delivery.redeliver(t0, 'https://b')).toBe(false);
+      expect({ ...delivery }).toEqual(before);
+    },
+  );
+
+  it('RETRYING은 기다리지 않고 지금 보내도록 당긴다', () => {
+    const delivery = WebhookDelivery.pending(
+      OutboxEvent.forPayment(OutboxEventType.PAYMENT_CONFIRMED, payment, order, now),
+      'https://a',
+    );
+    delivery.claim(t0, 60_000);
+    delivery.markFailed({ httpStatus: 500, error: 'HTTP 500' }, t0);
+
+    expect(delivery.redeliver(t0, 'https://a')).toBe(true);
+    expect(delivery).toMatchObject({ status: WebhookDeliveryStatus.PENDING, nextAttemptAt: t0 });
+  });
+});
