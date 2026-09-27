@@ -8,6 +8,7 @@ import { ErrorCode } from '../common/errors/error-code';
 import { hubErrorForTossRejection } from '../pg/toss-error';
 import { TossPaymentsClient } from '../pg/toss-payments.client';
 import { ServiceService } from '../service/service.service';
+import { BillingKeyPgDeleter } from './billing-key-pg-deleter';
 import { BillingKeyStatus } from './constants/billing-key.constants';
 import { BillingKey } from './domain/billing-key.entity';
 
@@ -19,6 +20,7 @@ export class BillingKeyService {
     private readonly serviceService: ServiceService,
     private readonly encryption: EncryptionService,
     private readonly toss: TossPaymentsClient,
+    private readonly pgDeleter: BillingKeyPgDeleter,
   ) {}
 
   /**
@@ -71,11 +73,17 @@ export class BillingKeyService {
   }
 
   /**
-   * 해제: hub에서 REVOKED로 바꿔 다시는 결제에 쓰지 않는다 (멱등).
-   * 토스 쪽 빌링키 삭제는 하지 않는다 — hub가 이 키로 결제할 수 없게 되는 것으로 충분하다.
+   * 해제: (tx) hub에서 REVOKED로 커밋해 다시는 결제에 쓰지 않는다 (멱등) → 토스 쪽 빌링키 삭제 1회 시도.
+   * 토스 삭제가 실패해도 응답은 해제 성공이다 — 결제에 못 쓰게 하는 것은 이미 끝났고, 남은 삭제는 재시도 배치가 맡는다.
    */
-  @Transactional()
   async revoke(serviceId: string, billingKeyId: string): Promise<BillingKey> {
+    const key = await this.revokeInHub(serviceId, billingKeyId);
+    if (key.needsPgDeletion) await this.pgDeleter.deleteOne(key.billingKeyId);
+    return key;
+  }
+
+  @Transactional()
+  private async revokeInHub(serviceId: string, billingKeyId: string): Promise<BillingKey> {
     const key = await this.billingKeys.findOne({
       where: { billingKeyId, serviceId },
       lock: { mode: 'pessimistic_write' },

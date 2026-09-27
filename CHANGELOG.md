@@ -6,6 +6,19 @@
 
 ### 2026-09-27
 
+#### feat(billing-key): 해제 시 토스 쪽 빌링키 삭제 + 실패 재시도 배치
+- **무엇을**:
+  - `DELETE /billing-keys/:id`: (tx) hub `REVOKED` 커밋 → 트랜잭션 밖에서 토스 삭제 1회 시도 → 결과 기록. 토스 삭제가 실패·타임아웃이어도 응답은 200 (계약 변경 없음)
+  - `BillingKeyPgDeleter`: 삭제 시도·결과 기록 (행 락 + `needsPgDeletion` 재확인). 예외를 던지지 않고 복호화 실패·자격증명 누락도 실패 시도로 기록
+  - 재시도 배치 `BILLING_KEY_PG_DELETE_ENABLED`/`_INTERVAL_MS` (기본 1분): 다음 시도는 `updated_at + 2^시도횟수 분` (10회 한도까지 약 17시간), 한도 도달 시 에러 로그
+- **왜**:
+  - 해제 후에도 토스에 빌링키가 살아 있으면, 시크릿 키가 유출됐을 때 결제에 쓰일 수 있는 값이 남음. hub 폐기로 "hub가 결제하지 않음"은 보장되지만 토스 쪽 뒷정리는 별도로 필요
+  - 결제 이력처럼 돈이 걸린 일이 아니므로 해제 응답을 토스 결과에 묶지 않음 — 서비스는 해제 성공만 알면 되고 뒷정리는 hub 책임
+  - 설계에서 말한 `FOR UPDATE SKIP LOCKED` 대신 대사 배치와 같은 방식(락 없이 후보 선택 → 토스 호출 → 락 + 재확인 후 기록)을 씀. 토스 호출 동안 행 락을 잡지 않기 위함이고, 토스 삭제는 멱등(404 = 삭제됨)이라 인스턴스가 겹쳐도 안전
+  - 지수 백오프: 고정 간격이면 토스 장애가 10분만 이어져도 한도에 닿아 키를 포기하게 됨
+- **변경 파일**: `src/billing-key/{billing-key-pg-deleter,billing-key-pg-delete.scheduler,billing-key.service,billing-key.module,billing-key.controller}.ts`, `test/billing-key/billing-key-pg-delete.int-spec.ts`, `test/support/integration-app.ts`, `.env.example`, `docs/api.md`, `docs/guides/service-integration.md`, `docs/openapi.json`, `README.md`
+- **남은 작업 / 주의**: 한도에 도달한 키는 지금은 에러 로그로만 드러남 → 운영 준비(알림) 작업에서 알림 대상에 포함할 것. 로컬에서 Docker VM과 호스트 시계가 4초 어긋나 시간 비교 통합 테스트 3건(주문 만료·키 만료·웹훅 임대)이 이 변경 전 코드에서도 똑같이 실패함 — 이번 변경과 무관
+
 #### feat(pg): 토스 빌링키 삭제(DELETE /v1/billing/{billingKey}) 추가
 - **무엇을**: `TossPaymentsClient.deleteBillingKey()` 추가. 결과는 `DELETED` / `REJECTED` / `UNKNOWN`. HTTP 호출부(`send`)와 결과 분류를 분리해 삭제만의 분류 규칙을 둠 — 2xx는 본문이 비어 있어도 `DELETED`, 404도 `DELETED`, 5xx·타임아웃은 `UNKNOWN`
 - **왜**: 삭제는 멱등하게 다뤄야 재시도 배치가 안전함. 404(이미 없음)를 실패로 보면 앞선 시도가 성공했는데 응답만 잃은 경우 한도까지 헛되이 재시도하게 됨

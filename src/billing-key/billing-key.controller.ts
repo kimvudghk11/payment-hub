@@ -45,7 +45,8 @@ export class BillingKeyController {
   @Delete(':billingKeyId')
   @ApiOperation({
     summary: '결제 수단 해제',
-    description: 'REVOKED — 이후 자동결제에 쓸 수 없다. 이미 해제됐으면 그대로 200. 다른 서비스의 수단은 404',
+    description:
+      'REVOKED — 이후 자동결제에 쓸 수 없다. 토스 쪽 빌링키도 삭제한다 (실패해도 200, hub가 재시도). 이미 해제됐으면 그대로 200. 다른 서비스의 수단은 404',
   })
   @ResponseMessage('결제 수단이 해제되었습니다.')
   @ApiResponse({ status: 200, type: BillingKeyResponseDto })

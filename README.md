@@ -289,7 +289,8 @@ src
 - [x] 배치 건 단위 실패 격리 (poison item이 대사·발송·만료를 멈추지 않게)
 - [ ] 실제 토스 테스트 키로 연동 검증 (지금은 공식 문서 규격의 가짜 토스 서버로 검증)
 - [ ] PG 정산 기장(`PG_SETTLED`: 입금·수수료) — 토스 정산 조회 연동 필요
-- [ ] 결제 수단별 매출 리포트, 토스 쪽 빌링키 삭제
+- [x] 해제한 빌링키의 토스 쪽 삭제 (실패 시 백오프 재시도 배치)
+- [ ] 결제 수단별 매출 리포트
 - [ ] 운영 준비: 앱 컨테이너 이미지, 구조화 로그·알림(UNKNOWN·DEAD·FAILED 누적), admin API 네트워크 제한
 
 - API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)

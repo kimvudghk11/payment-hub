@@ -324,7 +324,7 @@ const payment = await paymentHub.chargeBilling({
 ```
 
   - 재시도 정책(며칠 뒤 다시 시도 등)은 서비스가 정한다. 카드 거절 후 다시 시도할 때는 새 idempotencyKey를 쓴다
-  - 사용자가 카드를 바꾸면 새로 등록하고, 이전 수단은 `revokeBillingKey`로 해제한다
+  - 사용자가 카드를 바꾸면 새로 등록하고, 이전 수단은 `revokeBillingKey`로 해제한다. 해제하면 hub가 토스에서도 빌링키를 삭제한다 (실패하면 hub가 재시도 — 서비스는 할 일 없음)
 - **환불** ✅: 환불 가능 금액 확인 → 서비스가 금액 계산(일할 등) → 환불 요청
 
 ```ts

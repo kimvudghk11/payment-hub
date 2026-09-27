@@ -43,6 +43,7 @@ export const createIntegrationApp = async (env: Record<string, string> = {}): Pr
     WEBHOOK_DISPATCH_ENABLED: 'false',
     RECONCILE_ENABLED: 'false',
     ORDER_EXPIRY_ENABLED: 'false',
+    BILLING_KEY_PG_DELETE_ENABLED: 'false',
     ...env,
   });
 
