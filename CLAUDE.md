@@ -65,7 +65,7 @@ payment-hub는 **"결제만"** 중앙화한다. 주문 서버를 별도로 두�
 [서비스]  tb_service ─┬─ tb_service_api_key       서비스→hub 인증. 서비스당 여러 키(무중단 교체)
                       ├─ tb_pg_credential          서비스·환경(TEST/LIVE)별 토스 키. 활성 1개
                       └─ tb_service_product_type   상품 유형 화이트리스트 (카탈로그 아님)
-[수단]    tb_billing_key                           빌링키(암호화) + 마스킹 카드 정보
+[수단]    tb_billing_key                           빌링키(암호화) + 마스킹 카드 정보. 폐기 후 토스 쪽 삭제 상태(pg_deleted_at)
 [주문]    tb_order ── tb_order_item                서비스가 사전 등록. 금액 고정. 항목은 결제 시점 스냅샷
 [결제]    tb_payment ── tb_payment_cancel ── tb_payment_cancel_item
 [원장]    tb_ledger_account / tb_ledger_transaction ── tb_ledger_entry

@@ -116,15 +116,24 @@ CREATE TABLE tb_billing_key (
   card_number_masked  varchar(30)  NULL,                  -- '1234-****-****-5678'
   status              varchar(20)  NOT NULL DEFAULT 'ACTIVE',
   revoked_at          timestamptz  NULL,
+  -- 토스 쪽 빌링키 삭제. hub 폐기(REVOKED) 커밋 후 호출하고, 실패하면 재시도 배치가 한도까지 다시 시도한다
+  pg_deleted_at            timestamptz NULL,
+  pg_delete_attempt_count  integer     NOT NULL DEFAULT 0,
   created_at          timestamptz  NOT NULL DEFAULT now(),
   updated_at          timestamptz  NOT NULL DEFAULT now(),
   CONSTRAINT pk_tb_billing_key PRIMARY KEY (id),
   CONSTRAINT uq_tb_billing_key_id_service UNIQUE (id, service_id),   -- 복합 FK 대상
   CONSTRAINT fk_tb_billing_key_service FOREIGN KEY (service_id) REFERENCES tb_service (id),
   CONSTRAINT ck_tb_billing_key_provider CHECK (provider IN ('TOSS')),
-  CONSTRAINT ck_tb_billing_key_status CHECK (status IN ('ACTIVE', 'REVOKED'))
+  CONSTRAINT ck_tb_billing_key_status CHECK (status IN ('ACTIVE', 'REVOKED')),
+  -- 토스 삭제는 hub에서 폐기한 키만
+  CONSTRAINT ck_tb_billing_key_pg_deleted CHECK (pg_deleted_at IS NULL OR status = 'REVOKED'),
+  CONSTRAINT ck_tb_billing_key_pg_delete_attempts CHECK (pg_delete_attempt_count >= 0)
 );
 CREATE INDEX ix_tb_billing_key_user ON tb_billing_key (service_id, external_user_id) WHERE status = 'ACTIVE';
+-- 토스 삭제 재시도 배치 대상 (오래 전에 시도한 순)
+CREATE INDEX ix_tb_billing_key_pg_delete ON tb_billing_key (updated_at)
+  WHERE status = 'REVOKED' AND pg_deleted_at IS NULL;
 
 
 -- =====================================================================

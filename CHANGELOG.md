@@ -6,6 +6,14 @@
 
 ### 2026-09-27
 
+#### schema(billing-key): 토스 쪽 빌링키 삭제 상태 컬럼 추가
+- **무엇을**: `tb_billing_key`에 `pg_deleted_at`, `pg_delete_attempt_count` 추가 (+ 폐기된 키만 토스 삭제 가능 CHECK, 재시도 대상 부분 인덱스). `BillingKey`에 `markPgDeleted()`·`recordPgDeleteFailure()`·`needsPgDeletion` 추가, 시도 한도 `BILLING_KEY_PG_DELETE_MAX_ATTEMPTS = 10`
+- **왜**: 지금까지 해제는 hub에서 `REVOKED`만 기록하고 토스에는 빌링키가 살아 있었음. 원칙 4(먼저 기록 → 외부 호출)대로 hub 폐기를 먼저 커밋하고, 토스 삭제는 결과를 컬럼으로 남겨 실패 시 배치가 한도까지 재시도할 수 있게 함. 한도를 둔 이유: 가맹점(mId)이 바뀌어 영구히 거절되는 키가 매 틱 재시도되지 않게
+- **변경 파일**: `db/schema.sql`, `src/billing-key/{constants,domain}/*`, `test/billing-key/billing-key.entity.spec.ts`, `CLAUDE.md`
+- **스키마/에러 코드**: `tb_billing_key.pg_deleted_at`, `pg_delete_attempt_count`, `ck_tb_billing_key_pg_deleted`, `ck_tb_billing_key_pg_delete_attempts`, `ix_tb_billing_key_pg_delete`
+- **문서**: CLAUDE.md 4장 스키마 개요에 토스 삭제 상태 명시
+- **남은 작업 / 주의**: 토스 삭제 호출·재시도 배치는 다음 커밋들에서. 기존 DB는 `docker compose down -v`로 재생성 필요
+
 #### docs: 구현 완료 기능의 🚧 표시 정리 및 남은 작업 목록 추가
 - **무엇을**: api.md·가이드에 남아 있던 🚧 표시(웹훅 재전송 API, 감사 로그 조회, 수동 환불)를 실제 API로 교체. README 진행 상황에 아직 안 한 것(실제 토스 검증, PG 정산 기장, 결제 수단별 리포트, 운영 준비) 명시
 - **왜**: 문서가 코드보다 뒤처지면 연동하는 쪽이 있는 기능을 없는 줄 알게 됨. 남은 작업을 숨기지 않고 적어 둠
