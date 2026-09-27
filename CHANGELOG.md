@@ -6,6 +6,12 @@
 
 ### 2026-09-27
 
+#### feat(pg): 토스 빌링키 삭제(DELETE /v1/billing/{billingKey}) 추가
+- **무엇을**: `TossPaymentsClient.deleteBillingKey()` 추가. 결과는 `DELETED` / `REJECTED` / `UNKNOWN`. HTTP 호출부(`send`)와 결과 분류를 분리해 삭제만의 분류 규칙을 둠 — 2xx는 본문이 비어 있어도 `DELETED`, 404도 `DELETED`, 5xx·타임아웃은 `UNKNOWN`
+- **왜**: 삭제는 멱등하게 다뤄야 재시도 배치가 안전함. 404(이미 없음)를 실패로 보면 앞선 시도가 성공했는데 응답만 잃은 경우 한도까지 헛되이 재시도하게 됨
+- **변경 파일**: `src/pg/toss-payments.client.ts`, `test/pg/toss-payments.client.spec.ts`
+- **남은 작업 / 주의**: 실제 토스 키로는 검증하지 못함 — 공식 문서 규격(DELETE, 본문 없음)을 가정. 실키 검증 시 성공 응답 형태와 404 코드를 확인할 것
+
 #### schema(billing-key): 토스 쪽 빌링키 삭제 상태 컬럼 추가
 - **무엇을**: `tb_billing_key`에 `pg_deleted_at`, `pg_delete_attempt_count` 추가 (+ 폐기된 키만 토스 삭제 가능 CHECK, 재시도 대상 부분 인덱스). `BillingKey`에 `markPgDeleted()`·`recordPgDeleteFailure()`·`needsPgDeletion` 추가, 시도 한도 `BILLING_KEY_PG_DELETE_MAX_ATTEMPTS = 10`
 - **왜**: 지금까지 해제는 hub에서 `REVOKED`만 기록하고 토스에는 빌링키가 살아 있었음. 원칙 4(먼저 기록 → 외부 호출)대로 hub 폐기를 먼저 커밋하고, 토스 삭제는 결과를 컬럼으로 남겨 실패 시 배치가 한도까지 재시도할 수 있게 함. 한도를 둔 이유: 가맹점(mId)이 바뀌어 영구히 거절되는 키가 매 틱 재시도되지 않게

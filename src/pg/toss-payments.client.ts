@@ -23,6 +23,9 @@ export type TossResult =
 export type TossBillingKeyResult =
   { outcome: 'APPROVED'; billingKey: TossBillingKey } | Exclude<TossResult, { outcome: 'APPROVED' }>;
 
+/** 빌링키 삭제 결과. DELETED = 토스에 그 빌링키가 더 이상 없음 (이미 없던 경우 포함) */
+export type TossDeleteResult = { outcome: 'DELETED' } | Exclude<TossResult, { outcome: 'APPROVED' }>;
+
 /** 이전 요청이 이미 승인했을 수 있는 코드 — 실패로 확정하면 "돈은 나갔는데 실패 기록"이 된다 */
 const ALREADY_PROCESSED_CODES = new Set(['ALREADY_PROCESSED_PAYMENT', 'ALREADY_CANCELED_PAYMENT']);
 
@@ -129,12 +132,50 @@ export class TossPaymentsClient {
     return this.request('GET', `/v1/payments/${encodeURIComponent(params.paymentKey)}`, params.secretKey, {});
   }
 
+  /**
+   * 빌링키 삭제 (hub에서 해제한 뒤 토스에서도 지운다). https://docs.tosspayments.com/reference#빌링키-삭제
+   * 404는 이미 지워졌거나 없는 키 — 삭제의 목적이 달성된 상태이므로 DELETED로 본다.
+   */
+  async deleteBillingKey(params: { secretKey: string; billingKey: string }): Promise<TossDeleteResult> {
+    const sent = await this.send(
+      'DELETE',
+      `/v1/billing/${encodeURIComponent(params.billingKey)}`,
+      params.secretKey,
+      {},
+    );
+    if ('outcome' in sent) return sent;
+    const { status, json } = sent;
+    if (status >= 500) return { outcome: 'UNKNOWN', reason: 'SERVER_ERROR', response: json };
+    if ((status >= 200 && status < 300) || status === 404) return { outcome: 'DELETED' };
+    return rejected(status, json ?? {});
+  }
+
   private async request(
     method: 'GET' | 'POST',
     path: string,
     secretKey: string,
     options: { idempotencyKey?: string; body?: Record<string, unknown> },
   ): Promise<TossResult> {
+    const sent = await this.send(method, path, secretKey, options);
+    if ('outcome' in sent) return sent;
+    const { status, json } = sent;
+    if (status >= 500) return { outcome: 'UNKNOWN', reason: 'SERVER_ERROR', response: json };
+    if (!json) return { outcome: 'UNKNOWN', reason: 'INVALID_RESPONSE', response: null };
+    if (status >= 200 && status < 300) return { outcome: 'APPROVED', payment: json as unknown as TossPayment };
+
+    const result = rejected(status, json);
+    if (ALREADY_PROCESSED_CODES.has(result.code))
+      return { outcome: 'UNKNOWN', reason: 'ALREADY_PROCESSED', response: json };
+    return result;
+  }
+
+  /** HTTP 호출. 응답을 받으면 status·본문을, 받지 못하면(타임아웃·연결 실패) UNKNOWN을 돌려준다 */
+  private async send(
+    method: 'GET' | 'POST' | 'DELETE',
+    path: string,
+    secretKey: string,
+    options: { idempotencyKey?: string; body?: Record<string, unknown> },
+  ): Promise<{ status: number; json: Record<string, unknown> | null } | Extract<TossResult, { outcome: 'UNKNOWN' }>> {
     let response: Response;
     try {
       response = await fetch(new URL(path, this.options.baseUrl), {
@@ -152,18 +193,16 @@ export class TossPaymentsClient {
       const timedOut = error instanceof DOMException && error.name === 'TimeoutError';
       return { outcome: 'UNKNOWN', reason: timedOut ? 'TIMEOUT' : 'NETWORK_ERROR', response: null };
     }
-
-    const json = await readJson(response);
-    if (response.status >= 500) return { outcome: 'UNKNOWN', reason: 'SERVER_ERROR', response: json };
-    if (!json) return { outcome: 'UNKNOWN', reason: 'INVALID_RESPONSE', response: null };
-    if (response.ok) return { outcome: 'APPROVED', payment: json as unknown as TossPayment };
-
-    const code = typeof json.code === 'string' ? json.code : `HTTP_${response.status}`;
-    if (ALREADY_PROCESSED_CODES.has(code)) return { outcome: 'UNKNOWN', reason: 'ALREADY_PROCESSED', response: json };
-    const message = typeof json.message === 'string' ? json.message : '';
-    return { outcome: 'REJECTED', code, message, response: json };
+    return { status: response.status, json: await readJson(response) };
   }
 }
+
+const rejected = (status: number, json: Record<string, unknown>): Extract<TossResult, { outcome: 'REJECTED' }> => ({
+  outcome: 'REJECTED',
+  code: typeof json.code === 'string' ? json.code : `HTTP_${status}`,
+  message: typeof json.message === 'string' ? json.message : '',
+  response: json,
+});
 
 const readJson = async (response: Response): Promise<Record<string, unknown> | null> => {
   try {

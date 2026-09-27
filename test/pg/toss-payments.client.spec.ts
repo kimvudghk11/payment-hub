@@ -287,3 +287,59 @@ describe('TossPaymentsClient — 빌링(자동결제)', () => {
     expect(result).toMatchObject({ outcome: 'APPROVED', payment: { paymentKey: 'tbill_1' } });
   });
 });
+
+describe('TossPaymentsClient.deleteBillingKey (해제 후 토스 쪽 삭제)', () => {
+  const toss = new FakeToss();
+  let client: TossPaymentsClient;
+
+  beforeAll(async () => {
+    client = new TossPaymentsClient({ baseUrl: await toss.start(), timeoutMs: 300 });
+  });
+  afterEach(() => toss.reset());
+  afterAll(() => toss.close());
+
+  const deleteKey = () => client.deleteBillingKey({ secretKey: SECRET_KEY, billingKey: 'bk/secret' });
+
+  it('DELETE /v1/billing/{billingKey} — Basic 인증, 빌링키는 URL 인코딩, 본문 없음', async () => {
+    toss.respond(() => ({ status: 200, body: {} }));
+    await deleteKey();
+
+    const [request] = toss.requests;
+    expect(request.method).toBe('DELETE');
+    expect(request.path).toBe('/v1/billing/bk%2Fsecret');
+    expect(request.headers.authorization).toBe(`Basic ${Buffer.from(`${SECRET_KEY}:`).toString('base64')}`);
+    expect(request.headers['content-type']).toBeUndefined();
+  });
+
+  it('2xx → DELETED (본문이 비어 있어도)', async () => {
+    toss.respond(() => ({ status: 200, body: '' }));
+    await expect(deleteKey()).resolves.toEqual({ outcome: 'DELETED' });
+  });
+
+  it('404 → DELETED (이미 지워졌거나 없는 키 — 삭제의 목적은 이미 달성)', async () => {
+    toss.respond(() => ({
+      status: 404,
+      body: { code: 'NOT_FOUND_BILLING_KEY', message: '존재하지 않는 빌링키입니다.' },
+    }));
+    await expect(deleteKey()).resolves.toEqual({ outcome: 'DELETED' });
+  });
+
+  it('그 밖의 4xx → REJECTED + 토스 원본 코드·메시지', async () => {
+    const body = { code: 'UNAUTHORIZED_KEY', message: '인증되지 않은 시크릿 키 혹은 클라이언트 키 입니다.' };
+    toss.respond(() => ({ status: 401, body }));
+    await expect(deleteKey()).resolves.toEqual({
+      outcome: 'REJECTED',
+      code: 'UNAUTHORIZED_KEY',
+      message: body.message,
+      response: body,
+    });
+  });
+
+  it('5xx·타임아웃 → UNKNOWN (재시도 대상)', async () => {
+    toss.respond(() => ({ status: 500, body: { code: 'FAILED_INTERNAL_SYSTEM_PROCESSING', message: '' } }));
+    await expect(deleteKey()).resolves.toMatchObject({ outcome: 'UNKNOWN', reason: 'SERVER_ERROR' });
+
+    toss.respond(() => ({ status: 200, body: {}, delayMs: 1000 }));
+    await expect(deleteKey()).resolves.toMatchObject({ outcome: 'UNKNOWN', reason: 'TIMEOUT' });
+  });
+});
