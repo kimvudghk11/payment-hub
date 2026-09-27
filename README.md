@@ -8,6 +8,28 @@
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-4169E1?logo=postgresql&logoColor=white)
 ![TypeORM](https://img.shields.io/badge/TypeORM-0.3-FE0803)
 
+## 한눈에 보기
+
+- **무엇을**: 여러 서비스가 공유하는 결제 서버. 토스페이먼츠 일반 결제·빌링(자동결제)·가상계좌, 환불, 복식부기 원장, 서비스로의 결제 이벤트 웹훅
+- **규모**: 테이블 17개 · API 43개 (서비스 15 · 관리자 27 · 토스 웹훅 수신 1) · 테스트 약 520개 (단위 260 · 실제 PostgreSQL 통합 259)
+- **검증 방식**: 토스는 목 대신 **실제 HTTP로 응답하는 가짜 토스 서버**로 인증 헤더·타임아웃·에러 분류까지 확인. 엔티티↔스키마 적합성 테스트로 코드와 DB가 어긋나지 않게 유지
+- **아직 안 된 것**: 실제 토스 키로의 연동 검증, PG 정산 기장, 운영 준비(컨테이너 이미지·알림) — [진행 상황](#진행-상황)
+
+## 해결한 문제
+
+결제 서버에서 실제로 돈이 새거나 기록이 틀어지는 지점과, 각각을 막은 방식·근거다. 설계 설명은 [설계 상세](#설계-상세)에.
+
+| 문제 | 해결 | 근거 |
+|---|---|---|
+| PG 타임아웃 — 돈은 나갔는데 hub엔 기록이 없거나 "실패"로 잘못 기록됨 | 토스 호출 **전에** `IN_PROGRESS` 선기록, 결과를 모르면 실패가 아니라 `UNKNOWN` → 대사 배치가 토스 조회로 확정 (응답이 결제와 안 맞으면 확정 안 함) | [payment-confirm](./test/payment/payment-confirm.int-spec.ts) "타임아웃 → 504, 결제 UNKNOWN" · [payment-reconcile](./test/payment/payment-reconcile.int-spec.ts) |
+| 동시 요청·재시도로 인한 이중 결제 | 주문 행 락으로 승인 직렬화, 주문당 살아있는 결제 1건 [부분 유니크 인덱스](./db/schema.sql#L269), 모든 쓰기에 서비스 단위 멱등키 | [payment-confirm](./test/payment/payment-confirm.int-spec.ts) "두 요청이 동시에 승인 전 검증 구간에 있어도 주문 락으로 직렬화된다 (결정적 재현)" · [order-api](./test/order/order-api.int-spec.ts) 동시 주문 |
+| 한 서비스가 다른 서비스의 결제를 조회·취소 | 모든 쿼리에 인증된 `service_id` 강제 + 주문·결제·취소·빌링키를 `(id, service_id)` [복합 FK](./db/schema.sql#L245)로 연결 — 코드 버그가 있어도 DB가 거부 | [payment-confirm](./test/payment/payment-confirm.int-spec.ts) · [order-api](./test/order/order-api.int-spec.ts) "다른 서비스의 주문은 404 (존재 숨김)" |
+| 원장 금액 불일치·사후 조작 | 차변 합 = 대변 합을 커밋 시점 [제약 트리거](./db/schema.sql#L375)로, UPDATE/DELETE를 [트리거](./db/schema.sql#L400)로 차단. 같은 사건 이중 기장은 유니크 제약으로 불가 | [ledger-transaction](./test/ledger/ledger-transaction.entity.spec.ts) (분개 규칙) · 트리거 자체는 schema.sql |
+| 결제는 됐는데 서비스가 이벤트를 못 받음 / 두 번 받음 | 상태 변경과 이벤트를 한 트랜잭션에 저장(Transactional Outbox), `FOR UPDATE SKIP LOCKED` 폴러, HMAC 서명, 지수 백오프 → `DEAD` → 관리자 재전송 | [webhook-dispatch](./test/outbox/webhook-dispatch.int-spec.ts) "워커 두 개가 동시에 돌아도 한 건은 한 번만 보낸다" |
+| 깨진 한 건 때문에 배치 전체가 매 틱 멈춤 (poison item) | 대사·웹훅 발송·주문 만료·빌링키 삭제 배치가 건 단위로 실패를 격리하고 그 건을 순서의 뒤로 | [payment-reconcile](./test/payment/payment-reconcile.int-spec.ts) · [webhook-dispatch](./test/outbox/webhook-dispatch.int-spec.ts) "서명 키를 복호화할 수 없는 건이 섞여 있어도 나머지는 보내고, 그 건은 실패로 기록해 재시도한다" |
+
+각 결정을 **왜** 그렇게 했는지는 [CHANGELOG.md](./CHANGELOG.md)에 커밋 단위로 남아 있다.
+
 ---
 
 ## 왜 만들었나
@@ -70,7 +92,7 @@ flowchart LR
 
 ---
 
-## 핵심 설계 포인트
+## 설계 상세
 
 ### 1. 외부 호출 전에 먼저 기록한다 — 결과를 모르면 `UNKNOWN`
 토스 호출 전에 `IN_PROGRESS`로 저장하고, DB 트랜잭션 **밖에서** 토스를 호출한 뒤, 결과를 별도 트랜잭션으로 반영한다.
@@ -136,7 +158,7 @@ sequenceDiagram
 [서비스]  tb_service ─┬─ tb_service_api_key       서비스당 여러 키 (무중단 교체)
                       ├─ tb_pg_credential          서비스·환경별 토스 키 (암호화, 활성 1개)
                       └─ tb_service_product_type   상품 유형 화이트리스트
-[수단]    tb_billing_key                           빌링키(암호화) + 마스킹 카드 정보
+[수단]    tb_billing_key                           빌링키(암호화) + 마스킹 카드 정보, 토스 쪽 삭제 상태
 [주문]    tb_order ── tb_order_item                서비스가 사전 등록, 금액 고정
 [결제]    tb_payment ── tb_payment_cancel ── tb_payment_cancel_item
 [원장]    tb_ledger_account / tb_ledger_transaction ── tb_ledger_entry
@@ -175,7 +197,7 @@ stateDiagram-v2
 | Framework | NestJS 11, TypeScript |
 | DB | PostgreSQL 15+, TypeORM 0.3, typeorm-transactional |
 | Validation / Docs | class-validator, class-transformer, Swagger |
-| Batch | @nestjs/schedule (웹훅 폴러, 대사 배치, 주문 만료) |
+| Batch | @nestjs/schedule (웹훅 폴러, 대사 배치, 주문 만료, 빌링키 토스 삭제 재시도) |
 | PG | 토스페이먼츠 (일반 결제, 빌링 자동결제, 가상계좌) |
 | Test | Jest, Supertest |
 
@@ -262,6 +284,16 @@ src
 
 ## 진행 상황
 
+**남은 작업**
+
+- [ ] 실제 토스 테스트 키로 연동 검증 (지금은 공식 문서 규격의 가짜 토스 서버로 검증)
+- [ ] PG 정산 기장(`PG_SETTLED`: 입금·수수료) — 토스 정산 조회 연동 필요
+- [ ] 결제 수단별 매출 리포트
+- [ ] 운영 준비: 앱 컨테이너 이미지, 구조화 로그·알림(UNKNOWN·DEAD·FAILED 누적), admin API 네트워크 제한
+
+<details>
+<summary><b>완료한 작업</b> (구현 순서)</summary>
+
 - [x] 설계 원칙·책임 경계·API 표면 정의 ([CLAUDE.md](./CLAUDE.md))
 - [x] DB 스키마 (17개 테이블, 복합 FK, 원장 트리거)
 - [x] NestJS 프로젝트 초기 세팅
@@ -287,11 +319,9 @@ src
 - [x] 관리자 결제 조회·상세, 운영 큐(실패 웹훅 재전송·수동 대사), 수동 환불 (감사 로그 같은 트랜잭션)
 - [x] 감사 로그 조회, 토스 웹훅 수신 내역, 매출·환불 리포트 (원장 기준, KST 경계)
 - [x] 배치 건 단위 실패 격리 (poison item이 대사·발송·만료를 멈추지 않게)
-- [ ] 실제 토스 테스트 키로 연동 검증 (지금은 공식 문서 규격의 가짜 토스 서버로 검증)
-- [ ] PG 정산 기장(`PG_SETTLED`: 입금·수수료) — 토스 정산 조회 연동 필요
 - [x] 해제한 빌링키의 토스 쪽 삭제 (실패 시 백오프 재시도 배치)
-- [ ] 결제 수단별 매출 리포트
-- [ ] 운영 준비: 앱 컨테이너 이미지, 구조화 로그·알림(UNKNOWN·DEAD·FAILED 누적), admin API 네트워크 제한
+
+</details>
 
 - API 명세: [docs/api.md](./docs/api.md) · 연동 가이드: [서비스](./docs/guides/service-integration.md) / [admin](./docs/guides/admin-integration.md)
 - 변경 이력과 각 결정의 이유: [CHANGELOG.md](./CHANGELOG.md)
