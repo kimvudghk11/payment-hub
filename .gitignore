@@ -28,3 +28,6 @@ Thumbs.db
 # Claude Code 로컬 설정
 .claude/settings.local.json
 node_modules
+
+# 내부 문서 (진행 상황 등 — 레포에 올리지 않음)
+docs/internal/
